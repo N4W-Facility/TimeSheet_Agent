@@ -18,7 +18,7 @@ def parse_csv(filepath: str) -> dict:
         rows = list(reader)
 
     if not rows:
-        raise ValueError("El CSV está vacío o no se pudo leer correctamente.")
+        raise ValueError("The CSV is empty or could not be read.")
 
     # Detectar columnas de fecha — acepta DD-MM-YYYY, YYYY-MM-DD y YYYY-MM-DD HH:MM:SS
     DATE_FORMATS = ["%d-%m-%Y", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]
@@ -45,8 +45,8 @@ def parse_csv(filepath: str) -> dict:
 
     if not date_columns:
         raise ValueError(
-            "No se encontraron columnas de fecha en el CSV.\n"
-            "Formatos aceptados: DD-MM-YYYY, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS"
+            "No date columns found in the CSV.\n"
+            "Accepted formats: DD-MM-YYYY, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS"
         )
 
     def get_week_start(date_str: str) -> str:
@@ -96,8 +96,7 @@ def parse_csv(filepath: str) -> dict:
 
     if not weeks:
         raise ValueError(
-            "No se encontraron datos con horas > 0 en el CSV.\n"
-            "Verifica que el archivo tenga datos válidos."
+            "No rows with hours > 0 found in the CSV."
         )
 
     # Ordenar semanas cronológicamente

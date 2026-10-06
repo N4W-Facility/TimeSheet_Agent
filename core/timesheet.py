@@ -17,22 +17,32 @@ def align_to_full_weeks(start: datetime, end: datetime) -> tuple:
     return start, end
 
 
-def month_range(year: int, month: int) -> tuple:
-    """Primer y último día del mes, alineados a semanas completas."""
+def month_bounds(year: int, month: int) -> tuple:
+    """Primer y último día del mes calendario (periodo de Workday)."""
     first = datetime(year, month, 1)
     last = (first.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-    return align_to_full_weeks(first, last)
+    return first, last
+
+
+def weeks_touching(start: datetime, end: datetime) -> list:
+    """Semanas lunes–domingo que tocan el rango (candidatas para N4W): [(lunes, domingo)]."""
+    first, last = align_to_full_weeks(start, end)
+    weeks = []
+    while first <= last:
+        weeks.append((first, first + timedelta(days=6)))
+        first += timedelta(days=7)
+    return weeks
 
 
 def validate_complete_weeks(start: datetime, end: datetime) -> tuple:
     """(is_valid, error) — el rango debe ir de lunes a domingo."""
     if start.weekday() != 0:
-        return False, f"La fecha de inicio debe ser lunes (es {start.strftime('%A')})."
+        return False, f"Start date must be a Monday (it is a {start.strftime('%A')})."
     if end.weekday() != 6:
-        return False, f"La fecha de fin debe ser domingo (es {end.strftime('%A')})."
+        return False, f"End date must be a Sunday (it is a {end.strftime('%A')})."
     days = (end - start).days + 1
     if days % 7 != 0:
-        return False, f"El rango debe ser de semanas completas ({days} días)."
+        return False, f"Range must be complete weeks ({days} days)."
     return True, ""
 
 
@@ -40,7 +50,7 @@ def timesheet_date_range(df: pd.DataFrame) -> tuple:
     """(primera, última) fecha de las columnas de un timesheet."""
     dates = sorted(datetime.strptime(str(c).split(' ')[0], '%Y-%m-%d') for c in get_date_columns(df))
     if not dates:
-        raise ValueError("El timesheet no tiene columnas de fecha.")
+        raise ValueError("The timesheet has no date columns.")
     return dates[0], dates[-1]
 
 
@@ -62,9 +72,9 @@ def find_irregular_days(df: pd.DataFrame, expected: float = 8.0) -> list:
         weekday = datetime.strptime(date_str, '%Y-%m-%d').weekday()
         if weekday < 5 and abs(hours - expected) > 0.001:
             issues.append({'date': date_str, 'hours': float(hours),
-                           'issue': 'menos horas' if hours < expected else 'más horas'})
+                           'issue': 'under' if hours < expected else 'over'})
         elif weekday >= 5 and hours > 0:
-            issues.append({'date': date_str, 'hours': float(hours), 'issue': 'fin de semana'})
+            issues.append({'date': date_str, 'hours': float(hours), 'issue': 'weekend'})
     return issues
 
 

@@ -18,13 +18,13 @@ class WorkdayAutomation:
         self.confirm = confirm_callback if confirm_callback else lambda msg: True
     def connect(self):
         """Se conecta al navegador ya abierto vía CDP."""
-        self.log("Conectando al navegador...")
+        self.log("Connecting to browser...")
         self.playwright = sync_playwright().start()
         self.browser = self.playwright.chromium.connect_over_cdp(CDP_URL)
         context = self.browser.contexts[0]
         self.page = context.pages[0]
         self.page.set_default_timeout(TIMEOUT)
-        self.log("✓ Conectado al navegador")
+        self.log("✓ Connected to browser")
     def detect_lang(self):
         """
         Detecta el idioma leyendo el aria-label del primer link del menú.
@@ -55,7 +55,7 @@ class WorkdayAutomation:
             self.lang = "en"
         '''
         self.texts = get_texts(self.lang)
-        self.log(f"✓ Idioma detectado: {self.lang.upper()}")
+        self.log(f"✓ Workday language: {self.lang.upper()}")
     def navigate_to_time_management(self):
         """
         Navega a Gestión de tiempo desde el menú principal.
@@ -63,16 +63,16 @@ class WorkdayAutomation:
         """
         t = self.texts
         # Abrir menú
-        self.log("Abriendo menú principal...")
+        self.log("Opening main menu...")
         self.page.locator('[data-automation-id="globalNavButton"]').click()
         self.page.wait_for_timeout(1200)
         # Buscar el link por aria-label exacto en el idioma detectado
-        self.log(f"Buscando '{t['time_management']}'...")
+        self.log(f"Looking for '{t['time_management']}'...")
         time_link = self.page.locator(
             f'[data-automation-id="globalNavAppItemLink"][aria-label="{t["time_management"]}"]'
         )
         count = time_link.count()
-        self.log(f"  Links encontrados con ese aria-label: {count}")
+        self.log(f"  Links found with that aria-label: {count}")
         if count == 0:
             # Fallback: iterar todos los links y comparar texto
             all_links = self.page.locator('[data-automation-id="globalNavAppItemLink"]').all()
@@ -83,13 +83,13 @@ class WorkdayAutomation:
                     link.click()
                     self.page.wait_for_load_state("networkidle")
                     self.page.wait_for_timeout(1000)
-                    self.log("✓ En Gestión de tiempo")
+                    self.log("✓ In Time Management")
                     return
-            raise Exception(f"No se encontró el enlace '{t['time_management']}' en el menú")
+            raise Exception(f"Link '{t['time_management']}' not found in menu")
         time_link.first.click()
         self.page.wait_for_load_state("networkidle")
         self.page.wait_for_timeout(1000)
-        self.log("✓ En Gestión de tiempo")
+        self.log("✓ In Time Management")
     def click_this_week(self):
         """
         Hace clic en 'Esta semana' / 'This Week'.
@@ -97,7 +97,7 @@ class WorkdayAutomation:
         NO un botón. El texto incluye las horas ej: 'Esta semana (0 Horas)'.
         """
         t = self.texts
-        self.log(f"Haciendo clic en '{t['this_week']}'...")
+        self.log(f"Clicking '{t['this_week']}'...")
         # Buscar por role="link" que contenga el texto clave (sin importar las horas)
         link = self.page.locator(
             '[data-automation-id="label"][role="link"]'
@@ -105,24 +105,24 @@ class WorkdayAutomation:
         link.click()
         self.page.wait_for_load_state("networkidle")
         self.page.wait_for_timeout(1000)
-        self.log("✓ En calendario de horas")
+        self.log("✓ In time calendar")
     def open_enter_time_by_type(self):
         """
         Abre Acciones → Introducción de horas por tipo.
         El botón Acciones tiene data-automation-id consistente.
         """
         t = self.texts
-        self.log("Abriendo menú Acciones...")
+        self.log("Opening Actions menu...")
         # Botón Acciones — buscar por texto del idioma
         actions_btn = self.page.get_by_role("button", name=t["actions"], exact=False)
         actions_btn.click()
         self.page.wait_for_timeout(800)
         # Primera opción del dropdown — siempre es "Introducción de horas por tipo"
-        self.log(f"Seleccionando '{t['enter_time_by_type']}'...")
+        self.log(f"Selecting '{t['enter_time_by_type']}'...")
         first_option = self.page.get_by_role("menuitem").first
         first_option.click()
         self.page.wait_for_timeout(1500)
-        self.log("✓ Modal de selección de semana abierto")
+        self.log("✓ Week selection dialog open")
     def select_week_in_modal(self, week_start_date: str):
         """
         Selecciona la semana correcta en el modal de selección.
@@ -133,7 +133,7 @@ class WorkdayAutomation:
         start = datetime.strptime(week_start_date, "%Y-%m-%d")
         # El modal muestra fechas en formato DD/MM/YYYY
         start_formatted = start.strftime("%d/%m/%Y")
-        self.log(f"Seleccionando semana del {start_formatted}...")
+        self.log(f"Selecting week of {start_formatted}...")
         # Los radio buttons del modal — buscar por el texto de la fecha
         radios = self.page.get_by_role("radio").all()
         selected = False
@@ -146,17 +146,17 @@ class WorkdayAutomation:
             if start_formatted in (parent_text or ""):
                 radio.click()
                 selected = True
-                self.log(f"✓ Semana seleccionada: {parent_text.strip()}")
+                self.log(f"✓ Week selected: {parent_text.strip()}")
                 break
         if not selected:
             # Fallback: seleccionar el primer radio disponible
-            self.log("⚠ Semana exacta no encontrada, seleccionando la primera disponible")
+            self.log("⚠ Exact week not found, selecting the first available")
             self.page.get_by_role("radio").first.click()
         # Clic en Siguiente / Next / Avançar
         self.page.get_by_role("button", name=t["next_button"], exact=False).click()
         self.page.wait_for_load_state("networkidle")
         self.page.wait_for_timeout(1500)
-        self.log("✓ Semana confirmada, tabla lista")
+        self.log("✓ Week confirmed, table ready")
 
 
     def add_worktags(self, worktags: list[str]):
@@ -193,7 +193,7 @@ class WorkdayAutomation:
             option_count = options.count()
 
             if option_count == 0:
-                raise Exception(f"No se encontró el worktag: '{tag}'")
+                raise Exception(f"Worktag not found: '{tag}'")
 
             # Buscar coincidencia exacta primero, si no tomar la primera
             selected = False
@@ -216,7 +216,7 @@ class WorkdayAutomation:
         worktags : list, opcional
             Lista de strings con los worktags a asignar, ej. ["Project-123", "CC-001"]
         """
-        self.log(f"    Agregando fila para: {task_name}")
+        self.log(f"    Adding row for: {task_name}")
 
         # 1) Agregar nueva fila
         self.page.locator('[data-automation-id="addRow"]').click()
@@ -249,12 +249,12 @@ class WorkdayAutomation:
         first_data_row = rows_with_inputs.first
         hour_inputs = first_data_row.locator('[data-automation-id="numericInput"]')
         hour_count = hour_inputs.count()
-        self.log(f"    → {hour_count} campos de horas encontrados")
+        self.log(f"    → {hour_count} hour fields found")
 
         # 5) Llenar horas por día
         for i, date_str in enumerate(week_dates):
             if i >= hour_count:
-                self.log(f"    ⚠ No hay más columnas de horas para {date_str}")
+                self.log(f"    ⚠ No more hour columns for {date_str}")
                 break
 
             val = hours.get(date_str, 0.0)
@@ -280,7 +280,7 @@ class WorkdayAutomation:
                     self.page.wait_for_timeout(80)
 
             except Exception as e:
-                self.log(f"    ⚠ Error llenando {date_str} con valor {val}: {e}")
+                self.log(f"    ⚠ Error filling {date_str} with {val}: {e}")
                 raise
 
 
@@ -310,7 +310,7 @@ class WorkdayAutomation:
     def go_to_next_week(self):
         """Clic en ... → Siguiente semana."""
         t = self.texts
-        self.log("Avanzando a siguiente semana...")
+        self.log("Moving to next week...")
         # Botón ... — selector correcto por data-automation-id
         self.page.locator('[data-automation-id="uic_moreButton"]').click()
         self.page.wait_for_timeout(800)
@@ -318,13 +318,13 @@ class WorkdayAutomation:
         self.page.get_by_role("menuitem", name=t["next_week"], exact=False).click()
         self.page.wait_for_load_state("networkidle")
         self.page.wait_for_timeout(1500)
-        self.log("✓ Siguiente semana lista")
+        self.log("✓ Next week ready")
     '''
 
     def save(self):
         """Hace clic en Guardar (no Guardar y cerrar)."""
         t = self.texts
-        self.log("Guardando...")
+        self.log("Saving...")
         # Buscar botón exacto por data-automation-id o por texto exacto
         # "Guardar" es diferente de "Guardar y cerrar"
         save_btn = self.page.locator('[data-automation-id="wd-CommandButton_uic_saveButton"]')
@@ -336,23 +336,23 @@ class WorkdayAutomation:
                     if btn.inner_text().strip() == t["save"]:
                         btn.click()
                         self.page.wait_for_timeout(2000)
-                        self.log("✓ Guardado")
+                        self.log("✓ Saved")
                         return
                 except Exception:
                     continue
         else:
             save_btn.click()
             self.page.wait_for_timeout(2000)
-            self.log("✓ Guardado")
+            self.log("✓ Saved")
 
     def save_and_close(self):
         """Hace clic en Guardar y cerrar."""
         t = self.texts
-        self.log("Guardando y cerrando...")
+        self.log("Saving and closing...")
         self.page.get_by_role("button", name=t["save_and_close"], exact=False).click()
         self.page.wait_for_load_state("networkidle")
         self.page.wait_for_timeout(1500)
-        self.log("✓ Guardado y cerrado")
+        self.log("✓ Saved and closed")
 
     def go_to_next_week(self):
         """
@@ -364,7 +364,7 @@ class WorkdayAutomation:
         - Opción del menú: role='option' / data-automation-dropdown-option
         """
         t = self.texts
-        self.log("Avanzando a siguiente semana...")
+        self.log("Moving to next week...")
 
         more_clicked = False
 
@@ -376,10 +376,10 @@ class WorkdayAutomation:
             if more_btn.count() > 0 and more_btn.is_visible():
                 more_btn.click()
                 more_clicked = True
-                self.log("✓ Menú abierto con data-automation-id='uic_moreButton'")
+                self.log("✓ Menu opened via data-automation-id='uic_moreButton'")
                 self.page.wait_for_timeout(800)
         except Exception as e:
-            self.log(f"  ⚠ Falló uic_moreButton: {e}")
+            self.log(f"  ⚠ uic_moreButton failed: {e}")
 
         # ---------------------------------------------------------
         # 2) Fallback: abrir menú desde el ícono SVG
@@ -394,18 +394,18 @@ class WorkdayAutomation:
                     if clickable_parent.count() > 0:
                         clickable_parent.click()
                         more_clicked = True
-                        self.log("✓ Menú abierto desde ancestro clickeable del SVG")
+                        self.log("✓ Menu opened via clickable SVG ancestor")
                         self.page.wait_for_timeout(800)
                     else:
                         svg_menu.click(force=True)
                         more_clicked = True
-                        self.log("✓ Menú abierto con clic forzado sobre SVG")
+                        self.log("✓ Menu opened via forced SVG click")
                         self.page.wait_for_timeout(800)
             except Exception as e:
-                self.log(f"  ⚠ Falló intento con SVG related actions: {e}")
+                self.log(f"  ⚠ SVG related-actions attempt failed: {e}")
 
         if not more_clicked:
-            raise Exception("No se pudo abrir el menú de tres puntos para avanzar de semana.")
+            raise Exception("Could not open the three-dot menu to move to next week.")
 
         # ---------------------------------------------------------
         # 3) Seleccionar la opción 'Siguiente semana'
@@ -422,9 +422,9 @@ class WorkdayAutomation:
             if next_option.count() > 0 and next_option.is_visible():
                 next_option.click()
                 selected = True
-                self.log(f"✓ Opción '{t['next_week']}' seleccionada")
+                self.log(f"✓ Option '{t['next_week']}' selected")
         except Exception as e:
-            self.log(f"  ⚠ Falló selección por data-automation-dropdown-option: {e}")
+            self.log(f"  ⚠ Selection via data-automation-dropdown-option failed: {e}")
 
         # Opción B: por role='option'
         if not selected:
@@ -433,16 +433,16 @@ class WorkdayAutomation:
                 if next_option.count() > 0 and next_option.is_visible():
                     next_option.click()
                     selected = True
-                    self.log(f"✓ Opción '{t['next_week']}' seleccionada por role='option'")
+                    self.log(f"✓ Option '{t['next_week']}' selected via role='option'")
             except Exception as e:
-                self.log(f"  ⚠ Falló selección por role='option': {e}")
+                self.log(f"  ⚠ Selection via role='option' failed: {e}")
 
         # Opción C: recorrer todas las opciones visibles y comparar texto
         if not selected:
             try:
                 options = self.page.locator('[data-automation-dropdown-option="dropdown-option"]')
                 count = options.count()
-                self.log(f"  Opciones visibles en dropdown: {count}")
+                self.log(f"  Visible dropdown options: {count}")
 
                 for i in range(count):
                     opt = options.nth(i)
@@ -452,22 +452,22 @@ class WorkdayAutomation:
                         if t["next_week"].lower() in txt.lower():
                             opt.click()
                             selected = True
-                            self.log(f"✓ Opción '{txt}' seleccionada por recorrido manual")
+                            self.log(f"✓ Option '{txt}' selected by manual scan")
                             break
                     except Exception:
                         continue
             except Exception as e:
-                self.log(f"  ⚠ Falló recorrido manual de opciones: {e}")
+                self.log(f"  ⚠ Manual option scan failed: {e}")
 
         if not selected:
             raise Exception(
-                f"Se abrió el menú, pero no se encontró la opción de siguiente semana "
-                f"para el idioma '{self.lang}' ({t['next_week']})."
+                f"Menu opened, but the next-week option was not found "
+                f"for language '{self.lang}' ({t['next_week']})."
             )
 
         self.page.wait_for_load_state("networkidle")
         self.page.wait_for_timeout(1500)
-        self.log("✓ Siguiente semana lista")
+        self.log("✓ Next week ready")
 
     def run(self, weeks_data: dict):
         """
@@ -478,8 +478,8 @@ class WorkdayAutomation:
         week_num = 0
         for week_start, projects in weeks_data.items():
             week_num += 1
-            self.log(f"\\n{'='*45}")
-            self.log(f"📅 Semana {week_num}/{total_weeks}  |  inicio: {week_start}")
+            self.log(f"{'='*45}")
+            self.log(f"📅 Week {week_num}/{total_weeks}  |  start: {week_start}")
             self.log(f"{'='*45}")
             week_dates = get_week_dates(week_start)
             is_last_week = (week_num == total_weeks)
@@ -500,18 +500,18 @@ class WorkdayAutomation:
                         break
                     except Exception as e:
                         if attempt < MAX_RETRIES - 1:
-                            self.log(f"  ⚠ Reintento {attempt+2}/{MAX_RETRIES}...")
+                            self.log(f"  ⚠ Retry {attempt+2}/{MAX_RETRIES}...")
                             self.page.wait_for_timeout(2000)
                         else:
-                            self.log(f"  ✗ Error en '{task}': {e}")
+                            self.log(f"  ✗ Error on '{task}': {e}")
             # Pedir confirmación antes de guardar
             confirmed = self.confirm(
-                f"Semana {week_num}/{total_weeks}  —  inicio: {week_start}\n\n"
-                "Verifica que todos los proyectos y horas se vean correctos en Workday.\n\n"
-                "¿Confirmas guardar esta semana y continuar?"
+                f"Week {week_num}/{total_weeks}  —  start: {week_start}\n\n"
+                "Check in Workday that all projects and hours look correct.\n\n"
+                "Save this week and continue?"
             )
             if not confirmed:
-                raise Exception("Proceso cancelado por el usuario antes de guardar.")
+                raise Exception("Cancelled by the user before saving.")
             # Guardar
             self.save()
             # Ir a siguiente semana o cerrar
@@ -519,7 +519,7 @@ class WorkdayAutomation:
                 self.go_to_next_week()
             else:
                 self.save_and_close()
-                self.log("\\n✅ ¡Proceso completado exitosamente!")
+                self.log("✅ Process completed successfully!")
     def close(self):
         """Cierra la conexión con el navegador."""
         if self.playwright:

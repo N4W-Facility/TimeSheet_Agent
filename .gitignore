@@ -5,3 +5,6 @@ __pycache__/
 *.xlsx
 *.csv
 !tests/fixtures/*.csv
+settings.json
+# Lanzador antiguo (referencia)
+TimeSheet_N4W_EXE.bat

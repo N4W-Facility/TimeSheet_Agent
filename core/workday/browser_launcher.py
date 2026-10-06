@@ -39,15 +39,15 @@ def launch_chrome(log_callback=None) -> bool:
     log = log_callback if log_callback else print
     # Si ya hay CDP corriendo, no lanzar otro
     if is_cdp_running():
-        log("✓ Chrome con depuración remota ya está activo")
+        log("✓ Chrome with remote debugging already running")
         return True
     # Buscar Chrome
     chrome_path = find_chrome_path()
     if not chrome_path:
-        log("✗ No se encontró Chrome. Instálalo o agrega la ruta manualmente en config.py")
+        log("✗ Chrome not found. Install it or add its path in config.py")
         return False
-    log(f"✓ Chrome encontrado: {chrome_path}")
-    log("Lanzando Chrome con depuración remota...")
+    log(f"✓ Chrome found: {chrome_path}")
+    log("Launching Chrome with remote debugging...")
     # Carpeta de perfil temporal para no interferir con el perfil normal
     user_data_dir = os.path.join(os.path.expanduser("~"), ".workday_automation_profile")
     os.makedirs(user_data_dir, exist_ok=True)
@@ -66,11 +66,11 @@ def launch_chrome(log_callback=None) -> bool:
     else:
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # Esperar a que CDP esté listo (máximo 15 segundos)
-    log("Esperando que Chrome inicie...")
+    log("Waiting for Chrome to start...")
     for i in range(15):
         time.sleep(1)
         if is_cdp_running():
-            log(f"✓ Chrome listo (tardó {i+1}s)")
+            log(f"✓ Chrome ready ({i+1}s)")
             return True
-    log("✗ Chrome no respondió a tiempo. Inténtalo manualmente.")
+    log("✗ Chrome did not respond in time. Try opening it manually.")
     return False

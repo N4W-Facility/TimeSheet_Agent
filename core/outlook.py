@@ -123,7 +123,7 @@ def sync_categories(db: pd.DataFrame, on_progress=None):
     df = db.dropna(subset=['Code']).fillna(0)
     for column in ('Category', 'Include'):
         if column not in df.columns:
-            raise ValueError(f"La BD debe tener la columna '{column}'.")
+            raise ValueError(f"The database must contain a '{column}' column.")
 
     pythoncom.CoInitialize()
     try:
@@ -157,7 +157,7 @@ def get_active_email() -> Optional[str]:
         if accounts.Count > 0:
             return accounts.Item(1).SmtpAddress
     except Exception as e:
-        log.warning(f"No se pudo detectar el correo de Outlook: {e}")
+        log.warning(f"Could not detect Outlook email: {e}")
     return None
 
 
@@ -218,4 +218,4 @@ def lookup_user(email: str) -> Optional[Dict[str, str]]:
 
         return result if (result.get("name") or result.get("email")) else None
     except Exception as e:
-        raise RuntimeError(f"No se pudo acceder a Outlook: {e}")
+        raise RuntimeError(f"Unable to access Outlook: {e}")

@@ -56,20 +56,20 @@ def redistribute(timesheet: pd.DataFrame, task_details_path: str,
     df = classify_projects(timesheet, task_details_path)
     date_columns = get_date_columns(df)
     if not date_columns:
-        raise ValueError("El timesheet no tiene columnas de fecha.")
+        raise ValueError("The timesheet has no date columns.")
 
     df_virtual = df[df['Prorate'] == 1].copy()
     df_real = df[df['Prorate'] == 0].copy()
     df_excepted = df[df['Prorate'] == -1].copy()
-    log.info(f"Virtuales: {len(df_virtual)} | Reales: {len(df_real)} | Exceptuados: {len(df_excepted)}")
+    log.info(f"Virtual: {len(df_virtual)} | Real: {len(df_real)} | Excepted: {len(df_excepted)}")
     if df_real.empty:
-        raise ValueError("No hay proyectos reales para recibir horas.")
+        raise ValueError("No real projects available to receive hours.")
 
     df_real['Target'] = df_real['Code'].map(selections).fillna(True).astype(bool)
     df_sel = df_real[df_real['Target']].copy()
     df_not_sel = df_real[~df_real['Target']].copy()
     if df_sel.empty:
-        raise ValueError("No se seleccionó ningún proyecto para recibir horas.")
+        raise ValueError("No project selected to receive hours.")
 
     df_result = df_sel.copy()
     weights = _weights(df_sel, date_columns)
@@ -118,5 +118,5 @@ def redistribute(timesheet: pd.DataFrame, task_details_path: str,
 
     before = df[date_columns].sum().sum()
     after = df_result[date_columns].sum().sum()
-    log.info(f"Prorrateo: total original {before:.2f}h → final {after:.2f}h")
+    log.info(f"Prorate: original total {before:.2f}h → final {after:.2f}h")
     return df_result

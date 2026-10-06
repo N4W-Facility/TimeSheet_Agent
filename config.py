@@ -10,9 +10,10 @@ DB_SHEET = "N4W-Projects"
 DB_PASSWORD = "TimeSheet_N4W"
 
 # ── Archivos generados (en la carpeta de la BD del usuario) ──
-REPORT_NAME = "01-Report.xlsx"
-TIMESHEET_NAME = "02-Timesheet.csv"
-PRORATE_NAME = "03-Timesheet_Prorate.csv"
+# {start}/{end} = YYYY-MM-DD → cada periodo tiene sus propios archivos
+REPORT_NAME = "01-Report_{start}_{end}.xlsx"
+TIMESHEET_NAME = "02-Timesheet_{start}_{end}.csv"
+PRORATE_NAME = "03-Timesheet_Prorate_{start}_{end}.csv"
 
 # ── N4W Facility (OneDrive) ──────────────────────────────────
 N4W_ONEDRIVE_FOLDER = "N4WTimeTracking - Science Timesheets"
@@ -34,7 +35,8 @@ CHROME_PATHS = {
     "linux": ["/usr/bin/google-chrome", "/usr/bin/chromium-browser", "/usr/bin/chromium"],
 }
 
-# ── Ollama (fase 3) — configurable para servidor compartido ──
-OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
+# ── Ollama — configurable para servidor compartido ──
+# Variables propias (no OLLAMA_HOST: en el servidor suele valer 0.0.0.0, que no sirve como cliente)
+OLLAMA_HOST = os.environ.get("TSA_OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_MODEL = os.environ.get("TSA_OLLAMA_MODEL", "qwen3:8b")
 OLLAMA_NUM_CTX = 8192

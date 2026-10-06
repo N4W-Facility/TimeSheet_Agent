@@ -1,16 +1,21 @@
+# Ambiente de la app. TimeSheet_Agent.bat lo recrea automáticamente
+# cuando este archivo cambia (compara su hash SHA256).
 name: timesheet-agent
-channels: [conda-forge]
+channels:
+  - conda-forge
 dependencies:
-  - python=3.11
+  # Versión fija y madura: los EDR corporativos bloquean python.exe recién publicados
+  # (pasó con 3.11.17, compilado el mismo día). No usar la última sin probar.
+  - python=3.11.13
+  - pandas>=2.1,<3
+  - numpy
+  - openpyxl
+  - requests
+  - tzlocal
+  - sel(win): pywin32
+  - pytest
   - pip
   - pip:
-      - pandas>=2.1
-      - numpy
-      - openpyxl
-      - requests
-      - tzlocal
-      - pywin32; sys_platform == "win32"
-      - playwright
+      - playwright      # wheel con driver incluido (el paquete conda 'playwright' es solo Node)
       - customtkinter
       - ollama
-      - pytest

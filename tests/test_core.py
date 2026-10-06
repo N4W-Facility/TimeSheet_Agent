@@ -25,10 +25,16 @@ def make_db():
 
 # ── timesheet ────────────────────────────────────────────────
 
-def test_month_range_aligns_to_monday_sunday():
-    start, end = timesheet.month_range(2026, 10)
-    assert (start, end) == (datetime(2026, 9, 28), datetime(2026, 11, 1))
-    assert timesheet.validate_complete_weeks(start, end) == (True, "")
+def test_month_bounds_is_calendar_month():
+    assert timesheet.month_bounds(2026, 10) == (datetime(2026, 10, 1), datetime(2026, 10, 31))
+    assert timesheet.month_bounds(2026, 12) == (datetime(2026, 12, 1), datetime(2026, 12, 31))
+
+
+def test_weeks_touching_month_are_monday_sunday():
+    weeks = timesheet.weeks_touching(*timesheet.month_bounds(2026, 10))
+    assert weeks[0] == (datetime(2026, 9, 28), datetime(2026, 10, 4))
+    assert weeks[-1] == (datetime(2026, 10, 26), datetime(2026, 11, 1))
+    assert all(timesheet.validate_complete_weeks(m, s)[0] for m, s in weeks)
 
 
 def test_validate_complete_weeks_rejects_partial():
@@ -42,7 +48,7 @@ def test_irregular_days():
                        '2026-10-06 00:00:00': [3, 0],     # martes, faltan
                        '2026-10-10 00:00:00': [1, 0]})    # sábado
     issues = {i['date']: i['issue'] for i in timesheet.find_irregular_days(df)}
-    assert issues == {'2026-10-06': 'menos horas', '2026-10-10': 'fin de semana'}
+    assert issues == {"2026-10-06": "under", "2026-10-10": "weekend"}
 
 
 # ── outlook.build_timesheet (sin COM) ────────────────────────

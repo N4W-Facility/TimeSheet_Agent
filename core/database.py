@@ -20,7 +20,7 @@ def download_box_file(url_box: str, output_path: str) -> str:
     response.raise_for_status()
     with open(output_path, 'wb') as f:
         f.write(response.content)
-    log.info(f"Archivo de Box descargado: {output_path}")
+    log.info(f"Box file downloaded: {output_path}")
     return output_path
 
 
@@ -47,7 +47,7 @@ def update_database(db_path: str, box_file_path: str) -> list:
 
     df_base = pd.read_excel(db_path, sheet_name=DB_SHEET)
     df_source = pd.read_excel(box_file_path)
-    log.info(f"BD: {len(df_base)} filas | Box: {len(df_source)} filas")
+    log.info(f"Database: {len(df_base)} rows | Box: {len(df_source)} rows")
 
     # ── 1) Actualizar Description / Task Name / Grant ID / Category ──
     valid_codes = {
@@ -57,7 +57,7 @@ def update_database(db_path: str, box_file_path: str) -> list:
     }
     missing = valid_codes - set(df_source['Task_Name'].dropna())
     if missing:
-        raise ValueError(f"Códigos de la BD que no existen en el archivo de Box: {missing}")
+        raise ValueError(f"Database codes not found in the Box file: {missing}")
 
     src = df_source.set_index('Task_Name')
     for idx in df_base.index:
@@ -99,11 +99,11 @@ def update_database(db_path: str, box_file_path: str) -> list:
 
     if drop_idx:
         df_base = df_base.drop(drop_idx).reset_index(drop=True)
-        log.info(f"Proyectos eliminados de la BD: {len(removed)}")
+        log.info(f"Projects removed from database: {len(removed)}")
 
     # ── 3) Escribir con una sola instancia Excel COM ──
     _write_database_com(db_path, df_base)
-    log.info("BD actualizada")
+    log.info("Database updated")
     return removed
 
 
@@ -160,4 +160,4 @@ def _write_database_com(db_path: str, df_base: pd.DataFrame):
             try:
                 xl.Quit()
             except Exception as e:
-                log.warning(f"Error liberando Excel COM: {e}")
+                log.warning(f"Error releasing Excel COM: {e}")

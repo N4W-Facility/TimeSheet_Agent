@@ -63,7 +63,7 @@ def build_n4w_rows(timesheet: pd.DataFrame, email: str, name: str,
         code = row['Code']
         project_code = timesheet_codes.get(code, code)
         if timesheet_codes and code not in timesheet_codes:
-            log.warning(f"Sin Timesheet Code para {code}; se usa el código original")
+            log.warning(f"No Timesheet Code for {code}; using original code")
 
         by_week = {}
         for col, d in zip(date_cols, dates):
@@ -131,7 +131,7 @@ def write_n4w_excel(rows: pd.DataFrame, output_path: str) -> str:
         ws.column_dimensions[get_column_letter(col)].width = width
 
     wb.save(output_path)
-    log.info(f"Excel N4W creado: {output_path} ({len(rows)} filas)")
+    log.info(f"N4W Excel created: {output_path} ({len(rows)} rows)")
     return output_path
 
 
@@ -205,11 +205,11 @@ def resolve_onedrive_target(target_path: str, account_hint: Optional[str] = None
     """
     parts = [p for p in re.split(r"[\\/]+", target_path.strip().strip("\\/")) if p]
     if not parts:
-        raise ValueError("Ruta destino vacía.")
+        raise ValueError("Empty destination path.")
 
     accounts = get_onedrive_accounts()
     if not accounts:
-        raise RuntimeError("No se detectó OneDrive en este perfil de Windows.")
+        raise RuntimeError("No OneDrive folder detected in this Windows profile.")
 
     by_label = {a["label"]: a for a in accounts}
     if parts[0] in by_label:
@@ -237,16 +237,16 @@ def put_file_in_onedrive(src_path: str, target_path: str, account_hint: Optional
     """Copia un archivo a la carpeta compartida de OneDrive/SharePoint."""
     src = Path(src_path).expanduser().resolve()
     if not src.is_file():
-        raise FileNotFoundError(f"No existe el archivo origen: {src}")
+        raise FileNotFoundError(f"Source file does not exist: {src}")
 
     dst = resolve_onedrive_target(target_path, account_hint=account_hint)
     dst.parent.mkdir(parents=True, exist_ok=True)
 
     if dst.exists():
         if not overwrite:
-            raise FileExistsError(f"Ya existe el destino: {dst}")
+            raise FileExistsError(f"Destination already exists: {dst}")
         if not dst.is_file():
-            raise IsADirectoryError(f"El destino es una carpeta: {dst}")
+            raise IsADirectoryError(f"Destination is a folder: {dst}")
         try:
             os.remove(dst)
         except PermissionError:   # bloqueado por sincronización → renombrar
@@ -271,7 +271,7 @@ def find_existing_submissions(email: str) -> List[tuple]:
     """[(filename, start, end)] ya entregados en la carpeta N4W de OneDrive."""
     folder = resolve_onedrive_target(N4W_ONEDRIVE_FOLDER)
     if not folder.exists():
-        log.warning(f"No existe la carpeta N4W en OneDrive: {folder}")
+        log.warning(f"N4W folder not found in OneDrive: {folder}")
         return []
     out = []
     for f in folder.glob(f"{email}_*.xlsx"):
