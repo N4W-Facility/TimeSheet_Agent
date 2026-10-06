@@ -1,0 +1,16 @@
+name: timesheet-agent
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - pandas>=2.1
+      - numpy
+      - openpyxl
+      - requests
+      - tzlocal
+      - pywin32; sys_platform == "win32"
+      - playwright
+      - customtkinter
+      - ollama
+      - pytest
