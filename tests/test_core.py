@@ -110,11 +110,9 @@ def test_workday_reads_generated_csv(tmp_path):
     ts.to_csv(csv, index_label='Code')
 
     weeks = parse_csv(str(csv))
-    # Workday agrupa domingo–sábado: el domingo 11 cae en otra semana (con 0 h).
-    # Comportamiento heredado; se revisará en la fase 2.
-    assert list(weeks) == ['2026-10-04', '2026-10-11']
+    # Workday agrupa domingo–sábado: el domingo 11 cae en otra semana, pero sin horas → no se incluye.
+    assert list(weeks) == ['2026-10-04']
     assert weeks['2026-10-04'][0]['hours']['05-10-2026'] == 2.5
-    assert weeks['2026-10-11'][0]['hours'] == {'11-10-2026': 0.0}
     assert format_hours(2.5) == "2,5"
 
 
@@ -253,3 +251,20 @@ def test_workday_week_months_crossing():
     assert week_months('2026-10-04') == [(2026, 10)]
     assert week_months('2026-09-27') == [(2026, 9), (2026, 10)]
     assert week_months('2026-12-27') == [(2026, 12), (2027, 1)]
+
+
+def test_workday_csv_skips_weeks_without_hours(tmp_path):
+    p = tmp_path / "t.csv"
+    p.write_text("Code,Task Name,Grant ID,2026-10-01,2026-10-02,2026-10-05,2026-10-06\n"
+                 "A1,Task A,0,8,0,0,0\n"          # solo semana del 27/09
+                 "B2,Task B,0,0,0,4,4\n")         # solo semana del 04/10
+    weeks = parse_csv(str(p))
+    assert [x['task_name'] for x in weeks['2026-09-27']] == ['Task A']
+    assert [x['task_name'] for x in weeks['2026-10-04']] == ['Task B']
+
+
+def test_workday_parse_hours_cell():
+    from core.workday.csv_reader import parse_hours
+    assert parse_hours('7,25') == 7.25
+    assert parse_hours('8') == 8.0
+    assert parse_hours('') == 0.0

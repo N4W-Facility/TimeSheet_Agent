@@ -88,6 +88,8 @@ def parse_csv(filepath: str) -> dict:
             weeks_for_project[week_key][date_str] = hrs
 
         for week_key, hours in weeks_for_project.items():
+            if not any(h > 0 for h in hours.values()):
+                continue                # sin horas en esta semana → no se agrega fila
             weeks[week_key].append({
                 "task_name": task_name,
                 "grant_id": grant_id,  # ← incluir Grant ID en el resultado
@@ -117,3 +119,10 @@ def format_hours(value: float) -> str:
     if value == int(value):
         return str(int(value))
     return str(value).replace(".", ",")
+
+def parse_hours(text: str) -> float:
+    """Valor de una casilla de Workday ('7,25', '8', '') → float."""
+    try:
+        return float((text or "0").strip().replace(",", "."))
+    except ValueError:
+        return 0.0

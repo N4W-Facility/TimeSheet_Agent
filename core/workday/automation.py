@@ -7,7 +7,7 @@ from datetime import date
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from config import TIMEOUT, MAX_RETRIES, CDP_URL, WORKDAY_TIME_CALENDAR_URL
 from core.workday.i18n import detect_language, get_texts
-from core.workday.csv_reader import get_week_dates, format_hours
+from core.workday.csv_reader import get_week_dates, format_hours, parse_hours
 from core.workday.matching import best_option, option_task, week_label_matches, week_months
 class WorkdayAutomation:
     def __init__(self, log_callback=None, confirm_callback=None):
@@ -19,6 +19,7 @@ class WorkdayAutomation:
         self.log = log_callback if log_callback else print
         self.confirm = confirm_callback if confirm_callback else lambda msg: True
         self.notes = []     # selecciones con varias opciones en la semana actual
+        self.updates = []   # filas ya guardadas en Workday que se actualizaron esta semana
     def connect(self):
         """Se conecta al navegador ya abierto vía CDP."""
         self.log("Connecting to browser...")
@@ -197,10 +198,18 @@ class WorkdayAutomation:
         self.page.goto(WORKDAY_TIME_CALENDAR_URL)
         actions_btn = self.page.locator('[data-testid="actions_button"]')
         actions_btn.wait_for(state="visible")
+        date_range = self.page.locator('[data-testid="date_range"]')
+        # El calendario recuerda el último mes visto: volver a "Hoy" para contar desde el mes actual
+        today_btn = self.page.locator('[data-testid="today_button"]')
+        if today_btn.is_enabled():
+            shown = date_range.inner_text()
+            today_btn.click()
+            self.page.wait_for_function(
+                "t => { const e = document.querySelector('[data-testid=\"date_range\"]');"
+                " return e && e.innerText !== t; }", arg=shown)
         today = date.today()
         steps = (year - today.year) * 12 + (month - today.month)
         arrow = self.page.locator('[data-testid="arrows_button_%s"]' % ("next" if steps > 0 else "previous"))
-        date_range = self.page.locator('[data-testid="date_range"]')
         for _ in range(abs(steps)):
             shown = date_range.inner_text()
             arrow.click()
@@ -266,6 +275,48 @@ class WorkdayAutomation:
                 options.first().click()
 
             self.page.wait_for_timeout(500)
+
+    def _saved_rows(self):
+        """Filas editables ya guardadas (con ➖ y Tipo de jornada elegido); excluye permisos de solo lectura."""
+        rows = self.page.locator('tbody tr').filter(
+            has=self.page.locator('[data-automation-id="removeRow"]')).filter(
+            has=self.page.locator('[data-automation-id="numericInput"]'))
+        found = []
+        for i in range(rows.count()):
+            item = rows.nth(i).locator('td').nth(1).locator('[data-automation-id="selectedItem"]')
+            if item.count():
+                found.append((rows.nth(i), item.first.inner_text()))
+        return found
+
+    def _fill_project(self, task_name: str, hours: dict, week_dates: list):
+        """Si el proyecto ya está en la semana (p. ej. del mes anterior) solo actualiza sus días; si no, añade fila."""
+        saved = self._saved_rows()
+        same = [row for row, label in saved if option_task(label).lower() == " ".join(task_name.split()).lower()]
+        if not same:
+            self.add_project_row(task_name, hours, week_dates)
+            return
+        if len(same) > 1:
+            self.updates.append(f"• {task_name}: {len(same)} rows in Workday, updated the first one")
+        self.log(f"    Already in Workday: {task_name} — updating this month's days")
+        self._update_row(same[0], task_name, hours, week_dates)
+
+    def _update_row(self, row, task_name: str, hours: dict, week_dates: list):
+        """Escribe solo los días presentes en 'hours' (los del mes) cuyo valor difiere; los demás no se tocan."""
+        inputs = row.locator('[data-automation-id="numericInput"]')
+        for i, date_str in enumerate(week_dates):
+            if date_str not in hours or i >= inputs.count():
+                continue                            # día de otro mes: se respeta lo guardado
+            inp = inputs.nth(i)
+            current = parse_hours(inp.input_value())
+            want = hours[date_str]
+            if abs(current - want) < 0.001:
+                continue
+            inp.click(click_count=3)
+            inp.press("Backspace")
+            inp.type(format_hours(want), delay=40)
+            inp.press("Tab")
+            self.page.wait_for_timeout(150)
+            self.updates.append(f"• {task_name} {date_str[:5]}: {format_hours(current)} → {format_hours(want)}")
 
     def add_project_row(self, task_name: str, hours: dict, week_dates: list, worktags: list = None):
         """
@@ -572,7 +623,7 @@ class WorkdayAutomation:
                 self.log(f"  [{proj_num}/{total_projects}] {task}")
                 for attempt in range(MAX_RETRIES):
                     try:
-                        self.add_project_row(task, hours, week_dates)
+                        self._fill_project(task, hours, week_dates)
                         #if worktags == '0':
                         #    self.add_project_row(task, hours, week_dates)
                         #else:
@@ -589,6 +640,10 @@ class WorkdayAutomation:
             notes = ("⚠ Several Workday options, chose the best match — please check:\n"
                      + "\n".join(self.notes) + "\n\n") if self.notes else ""
             self.notes = []
+            if self.updates:
+                notes += ("Already in Workday (e.g. from the previous month) — only these days changed:\n"
+                          + "\n".join(self.updates) + "\n\n")
+            self.updates = []
             confirmed = self.confirm(
                 f"Week {week_num}/{total_weeks}  —  start: {week_start}\n\n"
                 + notes +
