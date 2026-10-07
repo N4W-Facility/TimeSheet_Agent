@@ -574,8 +574,29 @@ class Agent:
     def _require_loaded(self, wanted: Optional[str] = None) -> Loaded:
         if not self.loaded or (wanted and f"{self.loaded.start:%Y-%m}" != wanted):
             month = datetime.strptime(wanted, '%Y-%m') if wanted else self._last_month()
-            raise NeedInfo(self.m("read_first", phrase=self.p("read", month)))
+            if not (wanted and self._restore_month(month)):
+                raise NeedInfo(self.m("read_first", phrase=self.p("read", month)))
         return self.loaded
+
+    def _restore_month(self, day: datetime) -> bool:
+        """
+        Retoma el mes de `day` desde su última lectura en el historial y sus archivos
+        (p. ej. si después se leyó una semana suelta). True si quedó cargado.
+        """
+        start, end = timesheet.month_bounds(day.year, day.month)
+        last = self.store.last_read(start, end)
+        pipe = self._pipeline()
+        path = pipe._path(config.TIMESHEET_NAME, start, end)
+        if not last or not os.path.exists(path):
+            return False
+        prorated = pipe._path(config.PRORATE_NAME, start, end)
+        prorated = prorated if 'prorate' in last['steps'] and os.path.exists(prorated) else None
+        self.loaded = Loaded(start, end, path, True, pipe.virtual_projects(path), prorated,
+                             workday_done='workday' in last['steps'])
+        when = last['at'][:16].replace('T', ' ')
+        self.ui.say(self.m("restored_month", period=self.loaded.label, at=when,
+                           state="prorated" if prorated else "Outlook"))
+        return True
 
     def _alerts(self, start, end, df) -> List[str]:
         return analysis.alerts(df, start, end, self.store.all_hours(before=start),
@@ -720,7 +741,11 @@ class Agent:
                 wanted = f"{day:%Y-%m}"
         loaded = self._require_loaded(wanted)
         if not loaded.is_month:
-            raise NeedInfo(self.m("workday_month_only", phrase=self.p("read", self._last_month())))
+            # Lo último leído es una semana/rango: se retoma su mes si ya se había leído
+            if not self._restore_month(loaded.start):
+                raise NeedInfo(self.m("workday_month_only", period=loaded.label,
+                                      phrase=self.p("read", loaded.start)))
+            loaded = self.loaded
         if loaded.virtual and not loaded.prorated_path:
             raise NeedInfo(self.m("must_prorate", codes=", ".join(loaded.virtual),
                                   phrase=self.p("prorate", loaded.start)))

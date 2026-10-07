@@ -122,6 +122,10 @@ class FakePipe:
     def virtual_projects(self, csv_path):
         return self.virtual
 
+    def _path(self, name, start, end):
+        """Mismos nombres que build_timesheet / prorate de este simulador."""
+        return str(self.tmp / (f"ts_{start:%Y%m%d}.csv" if "02-" in name else "prorated.csv"))
+
     def catalog(self):
         return pd.DataFrame({'Code': list(self.status), 'Task Name': ['T'] * len(self.status),
                              'Grant ID': ['G'] * len(self.status)})
@@ -285,6 +289,34 @@ def test_resume_previous_session(env, tmp_path):
     agent4 = agent_mod.Agent(FakeUI(), agent.settings, store=agent.store)
     agent4.resume()
     assert agent4.loaded is None and "Workday filled for 2026-09" in agent4.ui.said[-1]
+
+
+def test_workday_restores_month_after_reading_a_week(env):
+    agent, ui, pipe, send = env
+    send("read_hours", month="2026-10")
+    send("prorate")
+    send("read_hours", start_date="2026-10-05", end_date="2026-10-11")
+    assert not agent.loaded.is_month
+
+    send("fill_workday", month="2026-10")
+    assert any("2026-10 as read on" in t for t in ui.said)
+    assert agent.loaded.is_month and pipe.filled.endswith("prorated.csv")
+
+    # Nueva sesión sin nada cargado: también lo retoma al pedir el mes
+    pipe.filled = None
+    agent2 = agent_mod.Agent(FakeUI(), agent.settings, store=agent.store)
+    agent2._pipeline = lambda: pipe
+    agent2.loaded = None
+    agent2._require_loaded("2026-10")
+    assert agent2.loaded.start == datetime(2026, 10, 1)
+
+
+def test_workday_week_read_without_month_says_why(env):
+    agent, ui, pipe, send = env
+    pipe._path = (lambda self, name, s, e: "/nonexistent.csv").__get__(pipe)
+    send("read_hours", start_date="2026-10-05", end_date="2026-10-11")
+    assert "last thing read was 2026-10-05" in send("fill_workday")
+    assert pipe.filled is None
 
 
 # ── sugerencias ──────────────────────────────────────────────

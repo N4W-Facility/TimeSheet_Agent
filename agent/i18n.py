@@ -76,9 +76,14 @@ MESSAGES = {
         "pt": "✓ Horas rateadas salvas. Próximo passo: “{phrase}”.",
     },
     "workday_month_only": {
-        "en": "Workday uses the full calendar month. Read a month first: “{phrase}”.",
-        "es": "Workday usa el mes calendario completo. Primero lee un mes: “{phrase}”.",
-        "pt": "O Workday usa o mês completo. Primeiro leia um mês: “{phrase}”.",
+        "en": "Workday uses the full calendar month and the last thing read was {period}. Read the month first: “{phrase}”.",
+        "es": "Workday usa el mes calendario completo y lo último leído fue {period}. Primero lee el mes: “{phrase}”.",
+        "pt": "O Workday usa o mês completo e o último lido foi {period}. Primeiro leia o mês: “{phrase}”.",
+    },
+    "restored_month": {
+        "en": "I'm using {period} as read on {at} ({state}). If your calendar changed since then, read it again.",
+        "es": "Uso {period} tal como se leyó el {at} ({state}). Si tu calendario cambió desde entonces, vuelve a leerlo.",
+        "pt": "Uso {period} como foi lido em {at} ({state}). Se seu calendário mudou desde então, leia de novo.",
     },
     "must_prorate": {
         "en": "{codes} must be prorated before filling Workday. Write: “{phrase}”.",

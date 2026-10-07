@@ -158,11 +158,15 @@ class History:
         self._run(lambda c: c.execute("INSERT INTO events VALUES (?, ?, ?, ?, ?)",
                                       (_d(start), _d(end), step, now, detail)))
 
-    def last_read(self) -> Optional[dict]:
-        """Último periodo leído con el paso 'read' y los pasos hechos después sobre ese periodo."""
+    def last_read(self, start=None, end=None) -> Optional[dict]:
+        """Último periodo leído con el paso 'read' (o la última lectura de start–end)
+        y los pasos hechos después sobre ese periodo."""
+        where, args = ("AND period_start = ? AND period_end = ? ", (_d(start), _d(end))) \
+            if start is not None else ("", ())
+
         def q(c):
             row = c.execute("SELECT rowid, period_start, period_end, at FROM events "
-                            "WHERE step = 'read' ORDER BY rowid DESC LIMIT 1").fetchone()
+                            "WHERE step = 'read' " + where + "ORDER BY rowid DESC LIMIT 1", args).fetchone()
             if not row:
                 return None
             rowid, start, end, at = row
