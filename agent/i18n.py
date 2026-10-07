@@ -118,6 +118,16 @@ MESSAGES = {
         "es": "Ya existían en Outlook (se dejan como están): {names}.",
         "pt": "Já existiam no Outlook (ficam como estão): {names}.",
     },
+    "all_categorized": {
+        "en": "✓ All your meetings of {period} already have a category.",
+        "es": "✓ Todas tus reuniones de {period} ya tienen categoría.",
+        "pt": "✓ Todas as suas reuniões de {period} já têm categoria.",
+    },
+    "meetings_categorized": {
+        "en": "✓ {n} meetings categorized in Outlook ({left} still without category). To update the hours write: “{phrase}”.",
+        "es": "✓ {n} reuniones categorizadas en Outlook ({left} siguen sin categoría). Para actualizar las horas escribe: “{phrase}”.",
+        "pt": "✓ {n} reuniões categorizadas no Outlook ({left} ainda sem categoria). Para atualizar as horas escreva: “{phrase}”.",
+    },
     "cats_failed": {
         "en": "⚠ I couldn't reach Outlook to create the categories; write “sync my Outlook categories” later.",
         "es": "⚠ No pude acceder a Outlook para crear las categorías; escribe “sincroniza mis categorías de Outlook” más tarde.",

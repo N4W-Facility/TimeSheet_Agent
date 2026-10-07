@@ -70,6 +70,51 @@ def read_meetings(start: datetime, end_exclusive: datetime) -> pd.DataFrame:
     return pd.DataFrame(columns=['Date', 'Category', 'Hours'])
 
 
+def _restricted_items(start: datetime, end_exclusive: datetime):
+    """Ocurrencias del calendario que empiezan en [start, end_exclusive) (incluye recurrentes)."""
+    import win32com.client
+
+    calendar = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI").GetDefaultFolder(9)
+    items = calendar.Items
+    items.IncludeRecurrences = True
+    items.Sort("[Start]")
+    restricted = items.Restrict(f"[Start] >= '{start:%m/%d/%Y %H:%M}' AND [Start] < '{end_exclusive:%m/%d/%Y %H:%M}'")
+    for item in restricted:
+        try:
+            m_start = remove_timezone(item.Start)
+            if start <= m_start < end_exclusive:
+                yield item, m_start
+        except AttributeError:
+            continue
+
+
+def calendar_entries(start: datetime, end_exclusive: datetime) -> List[dict]:
+    """Reuniones con asunto y categorías: [{'subject', 'start', 'hours', 'categories'}]."""
+    out = []
+    for item, m_start in _restricted_items(start, end_exclusive):
+        try:
+            out.append({'subject': str(item.Subject or "").strip(), 'start': m_start,
+                        'hours': (item.End - item.Start).total_seconds() / 3600,
+                        'categories': str(item.Categories or "").strip()})
+        except AttributeError:
+            continue
+    return out
+
+
+def set_category(subject: str, start: datetime, category: str) -> bool:
+    """
+    Asigna la categoría a UNA reunión sin categoría (asunto + inicio exactos).
+    En una recurrente se guarda solo esa ocurrencia (excepción), nunca la serie.
+    """
+    for item, m_start in _restricted_items(start - timedelta(minutes=1), start + timedelta(minutes=1)):
+        if m_start == start and str(item.Subject or "").strip() == subject and not item.Categories:
+            item.Categories = category
+            item.Save()
+            log.info(f"Category '{category}' → {subject} {start}")
+            return True
+    return False
+
+
 def build_timesheet(meetings: pd.DataFrame, start: datetime, end: datetime,
                     db: pd.DataFrame) -> tuple:
     """

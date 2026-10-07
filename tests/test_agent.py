@@ -74,6 +74,7 @@ class FakePipe:
         self.tmp, self.virtual = tmp_path, list(virtual)
         self.approved, self.filled, self.refreshes, self.categories = [], None, 0, []
         self.outlook = set()        # códigos con categoría ya existente en Outlook
+        self.assigned = []
         self.status = {
             'P100': {'status': 'active', 'prorate': False, 'description': 'Project', 'opened': '2020-01-01', 'closed': None},
             'P200': {'status': 'closed', 'prorate': False, 'description': 'Old', 'opened': '2020-01-01', 'closed': '2026-08-31'},
@@ -86,6 +87,17 @@ class FakePipe:
 
     def task_status(self):
         return self.status
+
+    def calendar_entries(self, start, end):
+        if start.month == 10:
+            return [{'subject': 'Weekly sync', 'start': datetime(2026, 10, 5, 9), 'hours': 1.0, 'categories': ''},
+                    {'subject': 'Weekly sync', 'start': datetime(2026, 10, 12, 9), 'hours': 1.0, 'categories': ''},
+                    {'subject': 'Coffee', 'start': datetime(2026, 10, 6, 9), 'hours': 0.5, 'categories': ''}]
+        return [{'subject': 'Weekly sync', 'start': datetime(2026, 9, 7, 9), 'hours': 1.0, 'categories': 'P100'}]
+
+    def assign_category(self, subject, starts, category):
+        self.assigned.append((subject, len(starts), category))
+        return len(starts)
 
     def ensure_categories(self, codes):
         self.categories += list(codes)
@@ -491,3 +503,13 @@ def test_add_project_reports_created_and_existing_categories(env):
     said = " ".join(ui.said)
     assert "VIRT1" in pipe.categories                               # ya en la lista: igual se revisa
     assert "Created: P100" in said and "Already in Outlook (kept as they are): P300 | old name" in said
+
+
+def test_categorize_meetings_suggests_and_assigns(env):
+    agent, ui, pipe, send = env
+    ui.choice = lambda d: {r['label']: r['default'] for r in d.context['rows'] if r['default']}
+    send("categorize_meetings", month="2026-10")
+    rows = ui.decisions[-1].context['rows']
+    assert [r['default'] for r in rows] == ['P100', None]          # sugerido por el asunto en septiembre
+    assert pipe.assigned == [('Weekly sync', 2, 'P100')]
+    assert ui.said[-1].startswith("✓ 2 meetings categorized") and "(1 still without category)" in ui.said[-1]

@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 # Pasos (el usuario los pide uno a uno)
 STEPS = ["read_hours", "prorate", "fill_workday", "submit_n4w"]
 # "Mis proyectos" (la lista de códigos en los que trabaja el usuario)
-PROJECTS = ["my_projects", "add_project", "remove_project", "import_projects"]
+PROJECTS = ["my_projects", "add_project", "remove_project", "import_projects", "categorize_meetings"]
 # Análisis sobre el historial
 ANALYSIS = ["hours_summary", "compare_months", "project_stats", "set_target",
             "alerts", "load_history", "show_chart"]
@@ -63,6 +63,7 @@ My projects (the list of project codes the user works on):
 - add_project: the user works on new project(s) ("I'm also working on FS3602A"), even if they also ask to create its Outlook category. Set "project" (first code).
 - remove_project: the user no longer works on a project ("I don't work on SE3202 anymore"). Set "project".
 - import_projects: import my project codes from an Excel file ("import my projects from Excel").
+- categorize_meetings: help me categorize the Outlook meetings that have NO category ("help me categorize my meetings of October"). Set month/dates if given.
 Analysis of saved history:
 - hours_summary: summary/balance of hours by project for a month or dates.
 - compare_months: compare "month" with "month2" (month2 null = the previous month). "Did I charge more than in August?"

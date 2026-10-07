@@ -80,6 +80,13 @@ CASES = [
     # load_history
     ("carga mi historial de los últimos 6 meses", "load_history", {"months_back": 6}),
     ("load my history", "load_history", {}),
+    # show_chart
+    ("muéstrame una gráfica de mis horas de este año", "show_chart", {}),
+    ("graph my hours on OF0104", "show_chart", {"project": "OF0104"}),
+    ("mostre um gráfico das minhas horas de setembro", "show_chart", {"month": last(9)}),
+    # categorize_meetings
+    ("ayúdame a categorizar mis reuniones de octubre", "categorize_meetings", {"month": last(10)}),
+    ("help me categorize my meetings without category", "categorize_meetings", {}),
     # other / help
     ("actualiza la base de datos de proyectos", "update_database", {}),
     ("sincroniza las categorías de outlook", "sync_categories", {}),

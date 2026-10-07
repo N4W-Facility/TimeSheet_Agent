@@ -57,6 +57,8 @@ OLLAMA_NUM_CTX = 4096
 # ── Historial y análisis (memoria mes a mes) ─────────────────
 APP_HOME = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "TimeSheetAgent")
 HISTORY_DB = os.path.join(APP_HOME, "history.db")   # SQLite: horas por día/código, objetivos, eventos
+CATEGORIZE_LOOKBACK_DAYS = 90    # historial de asuntos para sugerir el proyecto de una reunión
+CATEGORIZE_MAX_ROWS = 15         # filas en la tarjeta de categorizar (las de más horas)
 EXPECTED_DAILY_HOURS = 8.0      # lun–vie (no considera festivos)
 ALERT_TARGET_TOLERANCE = 10.0   # puntos % (o % del objetivo en horas) antes de alertar
 ALERT_AVERAGE_DEVIATION = 15.0  # puntos % frente al promedio histórico (proyectos sin objetivo)

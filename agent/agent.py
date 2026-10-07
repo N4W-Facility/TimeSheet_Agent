@@ -19,7 +19,7 @@ import config
 import workflows
 from agent import i18n, llm, suggest
 from agent.settings import Settings
-from core import analysis, charts, database, timesheet
+from core import analysis, categorize, charts, database, timesheet
 from core.history import History
 from pipeline import Callbacks, Cancelled, Decision, Pipeline
 
@@ -61,7 +61,8 @@ class Loaded:
 
 
 # Acciones que necesitan que el usuario haya armado "mis proyectos"
-NEEDS_PROJECTS = {"read_hours", "prorate", "fill_workday", "submit_n4w", "load_history"}
+NEEDS_PROJECTS = {"read_hours", "prorate", "fill_workday", "submit_n4w", "load_history",
+                  "categorize_meetings"}
 
 # Respuestas cortas a "¿cuál debería ser tu dedicación a X?" (se interpretan sin LLM)
 SAME_WORDS = {"same", "keep", "ok", "yes", "igual", "si", "asi", "mantener", "mesmo", "sim", "manter"}
@@ -739,6 +740,42 @@ class Agent:
         self.global_checked, self.status = False, {}
         self.check_global()
         self.review_projects()
+
+    def do_categorize_meetings(self, intent):
+        """Reuniones sin categoría del periodo → tarjeta con un proyecto sugerido por asunto → Outlook."""
+        if intent.month or (intent.start_date and intent.end_date):
+            start, end = self._period(intent)[:2]
+        elif self.loaded:
+            start, end = self.loaded.start, self.loaded.end
+        else:
+            start, end = timesheet.month_bounds(datetime.now().year, datetime.now().month)
+        self._ensure_global()
+        pipe = self._pipeline()
+        mine = self.store.my_projects()
+        res = pipe.ensure_categories(mine)                 # las de mis proyectos existen antes de asignar
+        choices = sorted(res['created'] + res['existing'])
+        label = period_label(start, end)
+
+        groups = categorize.uncategorized_groups(pipe.calendar_entries(start, end))
+        if not groups:
+            self.ui.say(self.m("all_categorized", period=label))
+            return
+        history = pipe.calendar_entries(start - timedelta(days=config.CATEGORIZE_LOOKBACK_DAYS),
+                                        start - timedelta(days=1))
+        hint = categorize.suggestions(history, choices)
+        shown = groups[:config.CATEGORIZE_MAX_ROWS]
+        rows = {f"{g['subject'] or '(no subject)'}  ·  {g['n']}× · {analysis.h(g['hours'])} h": g for g in shown}
+        chosen = self.ui.decide(Decision(
+            kind='assign_categories', question=f"Meetings without category {label} — assign a project",
+            options=choices, context={'rows': [{'label': k, 'default': hint.get(g['subject'])}
+                                               for k, g in rows.items()], 'skip': '— skip —'}))
+        if not chosen:
+            self.ui.say(self.m("cancelled"))
+            return
+        done = sum(pipe.assign_category(rows[k]['subject'], rows[k]['starts'], cat)
+                   for k, cat in chosen.items())
+        left = sum(g['n'] for g in groups) - done
+        self.ui.say(self.m("meetings_categorized", n=done, left=left, phrase=self.p("read", start)))
 
     def do_sync_categories(self, intent):
         mine = self.store.my_projects()

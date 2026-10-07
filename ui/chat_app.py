@@ -379,10 +379,24 @@ class ChatApp:
     def decide(self, decision: Decision):
         def build(done):
             card = self._card(decision.question, BLUE)
-            body = ctk.CTkScrollableFrame(card, fg_color="transparent",
-                                          height=min(220, 30 * len(decision.options)))
+            n_rows = len(decision.context.get('rows') or decision.options)
+            body = ctk.CTkScrollableFrame(card, fg_color="transparent", height=min(260, 34 * n_rows))
             body.pack(fill="x", padx=10)
-            if decision.multi:
+            if decision.context.get('rows'):          # una lista desplegable por fila → {fila: opción}
+                skip = decision.context.get('skip', '—')
+                vars_ = []
+                for row in decision.context['rows']:
+                    line = ctk.CTkFrame(body, fg_color="transparent")
+                    line.pack(fill="x", pady=3)
+                    ctk.CTkLabel(line, text=row['label'], font=(FONT, 11), text_color=TEXT, anchor="w",
+                                 wraplength=230, justify="left").pack(side="left", fill="x", expand=True)
+                    v = ctk.StringVar(value=row.get('default') or skip)
+                    ctk.CTkOptionMenu(line, values=[skip] + decision.options, variable=v, width=210,
+                                      font=(FONT, 11), fg_color=INPUT_BG, button_color=BORDER,
+                                      dropdown_font=(FONT, 11)).pack(side="right")
+                    vars_.append((row['label'], v))
+                pick = lambda: {k: v.get() for k, v in vars_ if v.get() != skip}
+            elif decision.multi:
                 vars_ = []
                 for opt in decision.options:
                     v = ctk.BooleanVar(value=opt in decision.preselected)

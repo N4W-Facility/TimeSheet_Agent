@@ -136,6 +136,14 @@ class Pipeline:
                 names.append(cat.loc[code, 'Category'])
         return out
 
+    def calendar_entries(self, start: datetime, end: datetime) -> List[dict]:
+        """Reuniones del rango [start, end] con asunto y categorías."""
+        return outlook.calendar_entries(start, end + timedelta(days=1))
+
+    def assign_category(self, subject: str, starts: List[datetime], category: str) -> int:
+        """Categoriza las ocurrencias indicadas (solo las que siguen sin categoría). Devuelve cuántas."""
+        return sum(outlook.set_category(subject, s, category) for s in starts)
+
     def create_categories(self, codes: List[str]) -> List[str]:
         """Crea las categorías que falten. Devuelve las creadas."""
         return self.ensure_categories(codes)['created']

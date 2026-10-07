@@ -315,3 +315,14 @@ def test_find_category_by_code_not_name():
     names = ['OF0104 | Old description', 'FS3602A | Something', 'Personal']
     assert find_category('of0104', names) == 'OF0104 | Old description'
     assert find_category('FS3602', names) is None
+
+
+def test_categorize_groups_and_suggestions():
+    from core import categorize
+    e = lambda s, d, h, c='': {'subject': s, 'start': datetime(2026, 10, d, 9), 'hours': h, 'categories': c}
+    groups = categorize.uncategorized_groups([e('Weekly sync', 5, 1.0), e('Weekly sync', 12, 1.0),
+                                              e('Workshop', 7, 4.0), e('Done', 7, 1.0, 'P100 | X')])
+    assert [(g['subject'], g['n'], g['hours']) for g in groups] == [('Workshop', 1, 4.0), ('Weekly sync', 2, 2.0)]
+    hist = [e('Weekly sync', 1, 1, 'P100 | Old name'), e('Weekly sync', 2, 1, 'P100 | Old name, Personal'),
+            e('Weekly sync', 3, 1, 'P200 | Other'), e('Lunch', 3, 1, 'Personal')]
+    assert categorize.suggestions(hist, ['P100 | Project', 'P300 | Other']) == {'Weekly sync': 'P100 | Project'}
