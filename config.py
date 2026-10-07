@@ -52,7 +52,11 @@ OLLAMA_HOST = os.environ.get("TSA_OLLAMA_HOST", "http://localhost:11434")
 # qwen3:4b: el LLM solo clasifica la frase → modelo liviano que corre aceptable sin GPU.
 # Comparar modelos con: python eval_intents.py qwen3:1.7b qwen3:4b qwen3:8b
 OLLAMA_MODEL = os.environ.get("TSA_OLLAMA_MODEL", "qwen3:4b")
-OLLAMA_NUM_CTX = 4096          # cada llamada usa ~1.300 tokens (prompt + 6 turnos cortos)
+# Fijo durante la sesión: si cambia entre llamadas, Ollama recarga el modelo.
+# Una frase usa ~800 tokens; el resto del contexto es historial del chat.
+OLLAMA_NUM_CTX = int(os.environ.get("TSA_OLLAMA_NUM_CTX", "4096"))
+OLLAMA_CTX_BUDGET = 0.75       # el historial se recorta para no pasar de esta fracción
+OLLAMA_MAX_HISTORY = int(os.environ.get("TSA_OLLAMA_MAX_HISTORY", "20"))   # mensajes; un modelo chico se confunde con demasiado historial
 OLLAMA_NUM_PREDICT = 512       # tope de salida; el JSON ocupa ~150 tokens
 OLLAMA_KEEP_ALIVE = "30m"      # modelo cargado en memoria entre mensajes
 OLLAMA_TIMEOUT = 60            # segundos; si Ollama no responde, el agente avisa

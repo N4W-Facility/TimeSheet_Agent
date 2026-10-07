@@ -146,7 +146,7 @@ class Agent:
 
     def _remember(self, role: str, content: str):
         self.chat_history.append({"role": role, "content": content})
-        self.chat_history = self.chat_history[-12:]
+        self.chat_history = self.chat_history[-100:]   # llm.fit_history recorta según el contexto
 
     # ── entrada principal (se llama desde un hilo de trabajo) ─
     def handle(self, text: str):

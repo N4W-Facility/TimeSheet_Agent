@@ -102,6 +102,7 @@ class Intent:
 
 
 _model = ""   # elegido por el usuario en la UI; vacío → config.OLLAMA_MODEL
+_chars_per_token = 3.5   # se recalibra con lo que Ollama reporta en cada llamada
 
 
 def set_model(name: str):
@@ -127,11 +128,46 @@ def _client():
     return Client(host=config.OLLAMA_HOST, timeout=config.OLLAMA_TIMEOUT)
 
 
+def _options() -> dict:
+    return {"temperature": 0, "num_ctx": config.OLLAMA_NUM_CTX,
+            "num_predict": config.OLLAMA_NUM_PREDICT}
+
+
+def _chars(messages: list) -> int:
+    return sum(len(m["content"]) for m in messages)
+
+
+def fit_history(system: list, history: List[dict], new: list) -> List[dict]:
+    """Historial más reciente que cabe en el presupuesto de contexto (recorta desde el inicio)."""
+    budget = config.OLLAMA_NUM_CTX * config.OLLAMA_CTX_BUDGET * _chars_per_token
+    room = budget - _chars(system) - _chars(new)
+    kept = []
+    for msg in reversed(history[-config.OLLAMA_MAX_HISTORY:]):
+        room -= len(msg["content"])
+        if room < 0:
+            break
+        kept.append(msg)
+    kept.reverse()
+    if kept and kept[0]["role"] == "assistant":   # empezar siempre por un turno del usuario
+        kept = kept[1:]
+    return kept
+
+
+def _track_usage(messages: list, resp):
+    global _chars_per_token
+    used = resp.get("prompt_eval_count") or 0
+    if not used:
+        return
+    _chars_per_token = max(2.0, min(6.0, _chars(messages) / used))
+    if used > config.OLLAMA_NUM_CTX * 0.8:
+        log.warning(f"context {used}/{config.OLLAMA_NUM_CTX} tokens — consider a larger TSA_OLLAMA_NUM_CTX")
+    else:
+        log.debug(f"context {used}/{config.OLLAMA_NUM_CTX} tokens")
+
+
 def _chat(messages: list, fmt=None, model: str = None) -> str:
     kwargs = dict(model=model or current_model(), messages=messages,
-                  keep_alive=config.OLLAMA_KEEP_ALIVE,
-                  options={"temperature": 0, "num_ctx": config.OLLAMA_NUM_CTX,
-                           "num_predict": config.OLLAMA_NUM_PREDICT})
+                  keep_alive=config.OLLAMA_KEEP_ALIVE, options=_options())
     if fmt is not None:
         kwargs["format"] = fmt
     client = _client()
@@ -139,6 +175,7 @@ def _chat(messages: list, fmt=None, model: str = None) -> str:
         resp = client.chat(think=False, **kwargs)   # qwen3: sin razonamiento → más rápido
     except TypeError:                               # librería ollama antigua sin 'think'
         resp = client.chat(**kwargs)
+    _track_usage(messages, resp)
     return resp["message"]["content"]
 
 
@@ -158,7 +195,8 @@ def check_ollama() -> tuple:
 def warm_up():
     """Carga el modelo en memoria (sin generar) para que el primer mensaje no espere."""
     try:
-        _client().generate(model=current_model(), prompt="", keep_alive=config.OLLAMA_KEEP_ALIVE)
+        _client().generate(model=current_model(), prompt="", keep_alive=config.OLLAMA_KEEP_ALIVE,
+                            options=_options())   # mismo num_ctx → el primer mensaje no recarga
     except Exception as e:
         log.debug(f"warm-up failed: {e}")
 
@@ -170,10 +208,10 @@ def _clean_code(value) -> Optional[str]:
 def parse_intent(text: str, history: List[dict], model: str = None) -> Intent:
     """history: [{'role': 'user'|'assistant', 'content': str}] (últimos turnos)."""
     today = date.today()
-    messages = [{"role": "system",
-                 "content": SYSTEM_PROMPT.format(today=today.isoformat(), weekday=today.strftime('%A'))}]
-    messages += history[-6:]
-    messages.append({"role": "user", "content": text})
+    system = [{"role": "system",
+               "content": SYSTEM_PROMPT.format(today=today.isoformat(), weekday=today.strftime('%A'))}]
+    new = [{"role": "user", "content": text}]
+    messages = system + fit_history(system, history, new) + new
 
     data = json.loads(_chat(messages, fmt=INTENT_SCHEMA, model=model))
     log.debug(f"intent: {data}")

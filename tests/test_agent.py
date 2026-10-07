@@ -524,3 +524,23 @@ def test_model_override_defaults_to_config(monkeypatch):
     assert llm.current_model() == "qwen3:8b"
     llm.set_model("")
     assert llm.current_model() == config.OLLAMA_MODEL
+
+
+def test_fit_history_trims_oldest_to_context(monkeypatch):
+    from agent import llm
+    import config
+    monkeypatch.setattr(config, "OLLAMA_NUM_CTX", 1000)
+    monkeypatch.setattr(config, "OLLAMA_MAX_HISTORY", 100)
+    monkeypatch.setattr(llm, "_chars_per_token", 4.0)
+    system = [{"role": "system", "content": "s" * 1000}]
+    new = [{"role": "user", "content": "hola"}]
+    history = []
+    for i in range(20):
+        history += [{"role": "user", "content": f"u{i}" + "x" * 100},
+                    {"role": "assistant", "content": f"a{i}" + "y" * 100}]
+    kept = llm.fit_history(system, history, new)
+    assert kept and kept[-1] is history[-1]          # conserva lo más reciente
+    assert kept[0]["role"] == "user"                 # empieza en un turno del usuario
+    assert sum(len(m["content"]) for m in system + kept + new) <= 1000 * 0.75 * 4
+    monkeypatch.setattr(config, "OLLAMA_MAX_HISTORY", 4)
+    assert len(llm.fit_history(system, history, new)) <= 4
