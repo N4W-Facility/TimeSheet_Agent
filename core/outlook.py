@@ -162,7 +162,9 @@ def build_timesheet(meetings: pd.DataFrame, start: datetime, end: datetime,
         lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, pd.Timestamp) else x
     )
     # La categoría de Outlook es "CODE | Descripción" → nos quedamos con CODE
+    # y sumamos: varias categorías con el mismo código (otra descripción) son el mismo proyecto
     report.index = [str(t).split('|')[0].strip() for t in report.index.values]
+    report = report.groupby(level=0, sort=False).sum()
 
     codes = db.dropna(subset=['Code']).fillna(0).replace('XXXXXX', 0).set_index('Code')
 

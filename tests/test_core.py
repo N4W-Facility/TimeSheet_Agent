@@ -67,6 +67,21 @@ def test_build_timesheet_maps_codes_and_reports_unmapped():
     assert unmapped == {'Sin Category': 1.0}
 
 
+def test_build_timesheet_sums_categories_with_same_code():
+    """'OF0104 | Admin' y 'OF0104 | Administración' son el mismo código → una sola fila."""
+    meetings = pd.DataFrame({
+        'Date': [date(2026, 6, 3), date(2026, 6, 3)],
+        'Category': ['OF0104 | Admin', 'OF0104 | Administración'],
+        'Hours': [2.0, 1.0],
+    })
+    ts, unmapped = outlook.build_timesheet(meetings, datetime(2026, 6, 3), datetime(2026, 6, 3), make_db())
+
+    assert list(ts.index) == ['OF0104']
+    assert ts.loc['OF0104', '2026-06-03 00:00:00'] == 3.0
+    assert ts.loc['OF0104', 'Task Name'] == 'OF0104 Task'
+    assert unmapped == {}
+
+
 # ── prorate ──────────────────────────────────────────────────
 
 def test_prorate_conserves_hours(tmp_path):
