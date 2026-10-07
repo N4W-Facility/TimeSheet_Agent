@@ -110,11 +110,7 @@ def redistribute(timesheet: pd.DataFrame, task_details_path: str,
         df_result['Grant ID'] = df_result['Grant ID'].fillna('')
         df_result = df_result[['Code', 'Task Name', 'Grant ID'] + date_columns]
 
-    # Códigos XX: horas > 0 se reportan como 1
-    xx = df_result['Code'].map(is_special_code)
-    for col in date_columns:
-        df_result.loc[xx & (df_result[col] > 0), col] = 1
-
+    # Códigos XX conservan sus 8 h: el paso a 1 (día) lo hace csv_reader al llenar Workday
     before = df[date_columns].sum().sum()
     after = df_result[date_columns].sum().sum()
     log.info(f"Prorate: original total {before:.2f}h → final {after:.2f}h")

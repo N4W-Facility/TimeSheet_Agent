@@ -16,7 +16,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.utils.datetime import to_excel
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from config import N4W_ONEDRIVE_FOLDER
+from config import EXPECTED_DAILY_HOURS, N4W_ONEDRIVE_FOLDER
 from core.utils import get_date_columns, is_special_code
 
 try:
@@ -49,9 +49,14 @@ def build_n4w_rows(timesheet: pd.DataFrame, email: str, name: str,
                    timesheet_codes: Dict[str, str]) -> pd.DataFrame:
     """Una fila por (proyecto, semana lunes–domingo) con horas > 0."""
     df = timesheet.copy()
-    df.loc[df['Code'].map(is_special_code), 'Code'] = 'OF0104'
-
     date_cols = [c for c in get_date_columns(df) if '00:00:00' in c]
+
+    # Licencias (XX): día completo = 8 h aunque Outlook diga otra cosa; se reportan como OF0104
+    xx = df['Code'].map(is_special_code)
+    for col in date_cols:
+        df.loc[xx & (pd.to_numeric(df[col], errors='coerce') > 0), col] = EXPECTED_DAILY_HOURS
+    df.loc[xx, 'Code'] = 'OF0104'
+
     dates = [datetime.strptime(c.replace(' 00:00:00', ''), '%Y-%m-%d') for c in date_cols]
 
     df = df[~df['Code'].astype(str).str.startswith('TNC')]

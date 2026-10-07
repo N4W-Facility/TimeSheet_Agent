@@ -4,6 +4,10 @@
 import csv
 from datetime import datetime, timedelta
 from collections import defaultdict
+
+from core.utils import is_special_code
+
+
 def parse_csv(filepath: str) -> dict:
     """
     Lee el CSV y retorna un diccionario agrupado por semana.
@@ -63,6 +67,8 @@ def parse_csv(filepath: str) -> dict:
             continue
 
         grant_id = row.get("Grant ID", "").strip()
+        code = row.get("Code", "").strip()
+        is_absence = is_special_code(code)      # licencia: Workday cuenta días, no horas
 
         # Construir dict de horas usando fecha normalizada DD-MM-YYYY como clave
         hours_by_date = {}
@@ -73,6 +79,8 @@ def parse_csv(filepath: str) -> dict:
                 val = float(raw)
             except ValueError:
                 val = 0.0
+            if is_absence and val > 0:
+                val = 1.0
             hours_by_date[norm_date] = val
             if val > 0:
                 has_hours = True
@@ -91,6 +99,7 @@ def parse_csv(filepath: str) -> dict:
             if not any(h > 0 for h in hours.values()):
                 continue                # sin horas en esta semana → no se agrega fila
             weeks[week_key].append({
+                "code": code,
                 "task_name": task_name,
                 "grant_id": grant_id,  # ← incluir Grant ID en el resultado
                 "hours": hours,

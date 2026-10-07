@@ -21,6 +21,9 @@ def findings_report(findings: dict) -> str:
     if findings['irregular_days']:
         lines += ["", "⚠ Days to review:"]
         lines += [f"   {d['date']}: {d['hours']:g} h ({d['issue']})" for d in findings['irregular_days']]
+    if findings.get('missing_holidays'):
+        lines += ["", "⚠ Public holidays without Public Holiday (XX05):"]
+        lines += [f"   {day}: {name}" for day, name in findings['missing_holidays']]
     return "\n".join(lines)
 
 

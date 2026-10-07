@@ -18,7 +18,7 @@ from typing import Callable, List, Optional
 import pandas as pd
 
 import config
-from core import analysis, database, n4w, outlook, prorate, timesheet
+from core import analysis, database, holidays_cal, n4w, outlook, prorate, timesheet
 from core.utils import get_date_columns
 
 
@@ -63,10 +63,11 @@ class Pipeline:
     """Cada método público es un paso independiente (el agente los encadena)."""
 
     def __init__(self, workdir: Optional[str] = None, email: Optional[str] = None,
-                 callbacks: Optional[Callbacks] = None):
+                 callbacks: Optional[Callbacks] = None, country: str = ""):
         self.workdir = os.path.abspath(workdir or config.WORK_DIR)
         os.makedirs(self.workdir, exist_ok=True)
         self.email = email
+        self.country = country          # ISO 2 letras: festivos sin licencia (holidays_cal)
         self.cb = callbacks or Callbacks()
         self.task_details_path = self._path(config.N4W_TASK_DETAILS_NAME)
 
@@ -179,11 +180,15 @@ class Pipeline:
             'summary': timesheet.summarize(df),
             'unmapped': unmapped,
             'irregular_days': timesheet.find_irregular_days(df),
+            'missing_holidays': holidays_cal.missing_absences(
+                analysis.to_long(df), holidays_cal.public_holidays(self.country, start, end)),
         }
         for cat, h in unmapped.items():
             self.cb.log(f"  ⚠ Category without code (dropped): '{cat}' — {h:g} h")
         for d in findings['irregular_days']:
             self.cb.log(f"  ⚠ {d['date']}: {d['hours']:g} h ({d['issue']})")
+        for day, name in findings['missing_holidays']:
+            self.cb.log(f"  ⚠ {day}: holiday ({name}) without Public Holiday (XX05)")
         return findings
 
     # ── Prorrateo (obligatorio para Workday si hay proyectos Prorate=1) ──

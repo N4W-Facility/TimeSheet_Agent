@@ -79,7 +79,7 @@ def test_prorate_conserves_hours(tmp_path):
     col = '2026-10-05 00:00:00'
     assert out.loc['R1', col] + out.loc['R2', col] == 8.0
     assert 'V1' not in out.index
-    assert out.loc['XX01', col] == 1      # XX con horas → 1
+    assert out.loc['XX01', col] == 0.5    # XX conserva sus horas (el 1 lo pone csv_reader)
 
 
 # ── n4w ──────────────────────────────────────────────────────
@@ -87,10 +87,10 @@ def test_prorate_conserves_hours(tmp_path):
 def test_n4w_rows_group_monday_weeks_and_replace_xx(tmp_path):
     ts = pd.DataFrame({'Code': ['P100', 'XX01', 'TNC1'], 'Task Name': ['', '', ''], 'Grant ID': ['', '', ''],
                        '2026-10-05 00:00:00': [8, 0, 1],    # lunes
-                       '2026-10-11 00:00:00': [0, 1, 0]})   # domingo misma semana
+                       '2026-10-11 00:00:00': [0, 24, 0]})  # domingo misma semana
     rows = n4w.build_n4w_rows(ts, 'a@b.org', 'A', {'P100': 'TS-P100'})
     assert set(rows['new_projectcode']) == {'TS-P100', 'OF0104'}   # TNC excluido, XX→OF0104
-    assert rows.set_index('new_projectcode').loc['OF0104', 'new_sunhours'] == 1
+    assert rows.set_index('new_projectcode').loc['OF0104', 'new_sunhours'] == 8   # licencia = día de 8 h
     path = n4w.write_n4w_excel(rows, str(tmp_path / 'out.xlsx'))
     assert Path(path).exists()
 
@@ -336,3 +336,60 @@ def test_n4w_summary_lists_rows_and_total():
     assert lines[0].split()[:2] == ['Week', 'Project'] and len(lines) == 4
     assert '2026-10-05' in lines[1] and '12.5' in lines[1]
     assert lines[-1].split() == ['TOTAL', '15.5']
+
+
+# ── licencias (XX) y festivos ────────────────────────────────
+
+def test_workday_csv_absences_become_days(tmp_path):
+    p = tmp_path / "t.csv"
+    p.write_text("Code,Task Name,Grant ID,2026-11-02,2026-11-03\n"
+                 "XX05,Public Holiday,-,8,0\n"
+                 "XX09,Vacation (Days),-,0,8\n"
+                 "A1,Task A,0,0,0.5\n")
+    week = {x['code']: x['hours'] for x in parse_csv(str(p))['2026-11-01']}
+    assert week['XX05']['02-11-2026'] == 1 and week['XX05']['03-11-2026'] == 0
+    assert week['XX09']['03-11-2026'] == 1
+    assert week['A1']['03-11-2026'] == 0.5          # proyectos: horas tal cual
+
+
+def test_all_day_event_counts_8h_per_weekday():
+    # vacaciones vie 30/10 → mar 3/11 (fin exclusivo 4/11): vie, lun, mar; sáb/dom no; rango hasta el 2/11
+    out = outlook.all_day_entries(datetime(2026, 10, 30), datetime(2026, 11, 4), 'XX09 | Vacation (Days)',
+                                  datetime(2026, 10, 1), datetime(2026, 11, 3))
+    assert [(e['Date'], e['Hours']) for e in out] == [(date(2026, 10, 30), 8.0), (date(2026, 11, 2), 8.0)]
+
+
+def test_dedication_pct_excludes_absences():
+    df = analysis.to_long(wide(['2026-11-02'], {'A': 6.0, 'B': 2.0, 'XX05': 8.0}))
+    table = analysis.by_project(df)
+    assert table.loc['A', '%'] == 75.0 and table.loc['XX05', '%'] == 0.0
+    assert table['Hours'].sum() == 16.0                       # el total sí incluye la licencia
+    avg = analysis.project_averages(df)
+    assert avg.loc['A', 'Avg %'] == 75.0 and avg.loc['XX05', 'Avg %'] == 0.0
+
+
+def test_missing_holiday_absences(monkeypatch):
+    from core import holidays_cal
+    df = analysis.to_long(wide(['2026-11-02', '2026-11-16'], {'A': 8.0}))
+    df = pd.concat([df, analysis.to_long(wide(['2026-11-16'], {'XX05': 8.0}))])
+    hol = {'2026-11-02': "All Saints' Day", '2026-11-16': 'Independence of Cartagena'}
+    assert holidays_cal.missing_absences(df, hol) == [('2026-11-02', "All Saints' Day")]
+    assert holidays_cal.public_holidays('', datetime(2026, 11, 1), datetime(2026, 11, 30)) == {}
+
+
+def test_workday_absences_have_ids():
+    import config
+    assert config.WORKDAY_ABSENCE_IDS['XX05'] == '2031$195'               # Festivo
+    assert set(config.WORKDAY_ABSENCE_IDS) <= set(config.INTERNAL_CODES)
+    assert set(config.INTERNAL_CODES) - set(config.WORKDAY_ABSENCE_IDS) == {'XX01', 'XX04'}
+
+
+def test_workday_flags_holiday_without_absence():
+    from core.workday.automation import WorkdayAutomation
+    auto = WorkdayAutomation(log_callback=lambda m: None)
+    auto.week_holidays = lambda dates: {'02-11-2026': "All Saints' Day", '31-10-2026': 'Halloween'}
+    work = {'code': 'A1', 'task_name': 'A', 'hours': {'02-11-2026': 8, '03-11-2026': 8}}
+    out = auto._missing_holidays([work], [])
+    assert len(out) == 1 and '02-11' in out[0]                  # 31/10 fuera del periodo del CSV
+    absence = {'code': 'XX05', 'task_name': 'Public Holiday', 'hours': {'02-11-2026': 1}}
+    assert auto._missing_holidays([work, absence], []) == []

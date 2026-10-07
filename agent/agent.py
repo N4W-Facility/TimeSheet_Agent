@@ -19,7 +19,7 @@ import config
 import workflows
 from agent import i18n, llm, suggest
 from agent.settings import Settings
-from core import analysis, categorize, charts, database, n4w, timesheet
+from core import analysis, categorize, charts, database, holidays_cal, n4w, timesheet
 from core.history import History
 from core.utils import get_date_columns
 from pipeline import Callbacks, Cancelled, Decision, Pipeline
@@ -149,7 +149,19 @@ class Agent:
 
     def _pipeline(self) -> Pipeline:
         cb = Callbacks(log=self.ui.log, decide=self.ui.decide, approve=self.ui.approve)
-        return Pipeline(email=self.settings.email, callbacks=cb)
+        return Pipeline(email=self.settings.email, callbacks=cb, country=self._country())
+
+    def _country(self) -> str:
+        """País para los festivos: settings.json o, la primera vez, la región de Windows."""
+        if not self.settings.country:
+            self.settings.country = holidays_cal.detect_country()
+            if self.settings.country:
+                self.ui.log(f"Country (Windows region): {self.settings.country}")
+                try:
+                    self.settings.save()
+                except OSError:
+                    pass
+        return self.settings.country
 
     def _ensure_global(self):
         """Base global descargada una vez por sesión (antes de leer Outlook)."""
@@ -239,6 +251,7 @@ class Agent:
         """
         if not self.global_checked:
             self.check_global()
+            self._ensure_absence_categories()
         if self.onboard():
             return
         self.review_projects()
@@ -352,6 +365,16 @@ class Agent:
         if info.get('prorate'):
             label += "  · prorate"
         return f"{label}  · {detail}" if detail else label
+
+    def _ensure_absence_categories(self):
+        """Las categorías XX (licencias) existen en Outlook para todos; se crean las que falten."""
+        try:
+            created = self._pipeline().create_categories(list(config.INTERNAL_CODES))
+        except Exception as e:                      # sin Outlook: no bloquea el arranque
+            self.ui.log(f"⚠ Leave categories not checked: {e}")
+            return
+        if created:
+            self.ui.say(self.m("absence_cats_created", names=", ".join(created)))
 
     def _create_categories(self, codes: List[str]) -> str:
         """Asegura la categoría de Outlook de cada código. Devuelve el resumen para el chat."""
@@ -945,6 +968,10 @@ class Agent:
         except Exception as e:
             self.ui.log(f"⚠ Outlook not read: {e}")
             checks.append((False, "Meetings without category: could not read Outlook"))
+        holidays = holidays_cal.missing_absences(
+            df, holidays_cal.public_holidays(self._country(), start, end))
+        checks.append((not holidays, "Public holidays without Public Holiday (XX05): "
+                       + (", ".join(f"{d[5:]} {n}" for d, n in holidays) or "none")))
         blocked = analysis.invalid_hours(df, self.status)
         checks.append((not blocked, "Hours on closed / not opened projects: "
                        + (", ".join(i['code'] for i in blocked) or "none")))

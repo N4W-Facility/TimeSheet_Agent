@@ -39,15 +39,17 @@ def working_days(start: datetime, end: datetime) -> int:
 
 
 def by_project(df: pd.DataFrame) -> pd.DataFrame:
-    """Balance por código: Task Name, Hours, % del total, Days con horas."""
+    """Balance por código: Task Name, Hours, % de dedicación, Days con horas.
+    El % es sobre las horas trabajadas: las licencias (XX) tienen 0 y no cuentan en la base."""
     if df.empty:
         return pd.DataFrame(columns=['Task Name', 'Hours', '%', 'Days']).rename_axis('Code')
     g = df.groupby('code').agg(**{'Task Name': ('task_name', 'last'),
                                   'Hours': ('hours', 'sum'),
                                   'Days': ('day', 'nunique')})
     g = g[g['Hours'] > 0]
-    total = g['Hours'].sum()
-    g['%'] = (g['Hours'] / total * 100).round(1) if total else 0.0
+    worked = g['Hours'].where(~g.index.map(is_special_code), 0.0)
+    total = worked.sum()
+    g['%'] = (worked / total * 100).round(1) if total else 0.0
     g.index.name = 'Code'
     return g.sort_values('Hours', ascending=False)[['Task Name', 'Hours', '%', 'Days']]
 
@@ -111,7 +113,9 @@ def project_averages(df: pd.DataFrame) -> pd.DataFrame:
     pivot = monthly(df)
     if pivot.empty:
         return pd.DataFrame()
-    pct = pivot.div(pivot.sum(axis=0).replace(0, float('nan')), axis=1).fillna(0) * 100
+    worked = pivot[~pivot.index.map(is_special_code)]          # licencias fuera de la base del %
+    pct = pivot.div(worked.sum(axis=0).replace(0, float('nan')), axis=1).fillna(0) * 100
+    pct.loc[pivot.index.map(is_special_code)] = 0.0
     names = df.groupby('code')['task_name'].last()
     out = pd.DataFrame({
         'Task Name': names,

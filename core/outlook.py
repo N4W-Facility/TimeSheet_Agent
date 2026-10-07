@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
+from config import EXPECTED_DAILY_HOURS
 from core.utils import remove_timezone
 
 log = logging.getLogger(__name__)
@@ -45,15 +46,32 @@ def get_calendar(start_date: str, end_date: str, buffer_start=25, buffer_end=25)
     for item in restricted:
         try:
             m_start, m_end = item.Start, item.End
-            if remove_timezone(start) <= remove_timezone(m_start) <= remove_timezone(end):
+            category = item.Categories if item.Categories else "Sin Category"
+            if item.AllDayEvent:
+                meetings += all_day_entries(remove_timezone(m_start), remove_timezone(m_end), category,
+                                            remove_timezone(start), remove_timezone(end))
+            elif remove_timezone(start) <= remove_timezone(m_start) <= remove_timezone(end):
                 meetings.append({
                     'Date': m_start.date(),
-                    'Category': item.Categories if item.Categories else "Sin Category",
+                    'Category': category,
                     'Hours': (m_end - m_start).total_seconds() / 3600,
                 })
         except AttributeError:
             continue
     return pd.DataFrame(meetings)
+
+
+def all_day_entries(m_start: datetime, m_end: datetime, category: str,
+                    start: datetime, end_exclusive: datetime) -> List[dict]:
+    """
+    Evento de día completo (p. ej. vacaciones de varios días): 8 h por cada día
+    lunes–viernes que cubre dentro del rango, no las 24 h × días que dura.
+    """
+    out = []
+    for d in pd.date_range(m_start.date(), m_end.date() - timedelta(days=1), freq='D'):
+        if d.weekday() < 5 and start <= d < end_exclusive:
+            out.append({'Date': d.date(), 'Category': category, 'Hours': EXPECTED_DAILY_HOURS})
+    return out
 
 
 def read_meetings(start: datetime, end_exclusive: datetime) -> pd.DataFrame:

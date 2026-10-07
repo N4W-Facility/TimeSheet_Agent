@@ -14,6 +14,7 @@ dependencies:
   - openpyxl
   - requests
   - tzlocal
+  - holidays          # festivos por país (avisos de festivo sin licencia)
   - matplotlib-base     # gráficas dentro del chat
   - sel(win): pywin32
   - pytest

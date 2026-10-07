@@ -5,7 +5,11 @@
 import time
 from datetime import date
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
-from config import TIMEOUT, MAX_RETRIES, CDP_URL, WORKDAY_TIME_CALENDAR_URL
+import re
+
+from config import (TIMEOUT, MAX_RETRIES, CDP_URL, WORKDAY_TIME_CALENDAR_URL, INTERNAL_CODES,
+                    WORKDAY_ABSENCE_IDS, WORKDAY_ABSENCE_MENU_ID)
+from core.utils import is_special_code
 from core.workday.i18n import detect_language, get_texts
 from core.workday.csv_reader import get_week_dates, format_hours, parse_hours
 from core.workday.matching import best_option, option_task, week_label_matches, week_months
@@ -285,15 +289,23 @@ class WorkdayAutomation:
         for i in range(rows.count()):
             item = rows.nth(i).locator('td').nth(1).locator('[data-automation-id="selectedItem"]')
             if item.count():
-                found.append((rows.nth(i), item.first.inner_text()))
+                found.append((rows.nth(i), item.first.inner_text(), item.first.get_attribute("id") or ""))
         return found
 
-    def _fill_project(self, task_name: str, hours: dict, week_dates: list):
+    def _fill_project(self, code: str, task_name: str, hours: dict, week_dates: list):
         """Si el proyecto ya está en la semana (p. ej. del mes anterior) solo actualiza sus días; si no, añade fila."""
+        absence_id = WORKDAY_ABSENCE_IDS.get(code)
         saved = self._saved_rows()
-        same = [row for row, label in saved if option_task(label).lower() == " ".join(task_name.split()).lower()]
+        if absence_id:              # licencia: la etiqueta está traducida, el id no
+            same = [row for row, _, pill in saved if pill == f"pill-{absence_id}"]
+        else:
+            same = [row for row, label, _ in saved
+                    if option_task(label).lower() == " ".join(task_name.split()).lower()]
         if not same:
-            self.add_project_row(task_name, hours, week_dates)
+            if absence_id:
+                self.add_absence_row(code, task_name, absence_id, hours, week_dates)
+            else:
+                self.add_project_row(task_name, hours, week_dates)
             return
         if len(same) > 1:
             self.updates.append(f"• {task_name}: {len(same)} rows in Workday, updated the first one")
@@ -353,6 +365,33 @@ class WorkdayAutomation:
         if worktags:
             self._fill_worktags(worktags)
 
+        self._type_new_row_hours(hours, week_dates)
+
+    def add_absence_row(self, code: str, task_name: str, absence_id: str, hours: dict, week_dates: list):
+        """
+        Licencia (XX): Tipo de jornada → submenú Ausencia → el tipo por su id (no por
+        texto: la etiqueta cambia con el idioma). Los valores son días (1), no horas.
+        """
+        self.log(f"    Adding absence row: {task_name}")
+        self.page.locator('[data-automation-id="addRow"]').click()
+        self.page.wait_for_timeout(800)
+        tipo_input = self.page.locator('tbody input[placeholder="Buscar"]').first
+        row = tipo_input.evaluate_handle("e => e.closest('tr')")
+        tipo_input.click()
+        self.page.locator(f'[id="menuItem-{WORKDAY_ABSENCE_MENU_ID}"]').click()
+        option = self.page.locator(f'[id="menuItem-{absence_id}"]')
+        option.wait_for(state="attached")
+        # los últimos (p. ej. Vacaciones) quedan bajo el borde del menú y el clic no se registra
+        option.evaluate("e => e.scrollIntoView({block: 'center'})")
+        self.page.wait_for_timeout(300)
+        option.click()
+        self.page.wait_for_timeout(1500)
+        if not row.evaluate(f"r => !!r && !!r.querySelector('[id=\"pill-{absence_id}\"]')"):
+            raise Exception(f"Workday did not select the absence '{task_name}'")
+        self._type_new_row_hours(hours, week_dates)
+
+    def _type_new_row_hours(self, hours: dict, week_dates: list):
+        """Escribe las horas de la fila recién añadida (Workday la pone primera)."""
         # 4) Buscar la primera fila real con campos de horas
         rows_with_inputs = self.page.locator('tbody tr').filter(
             has=self.page.locator('[data-automation-id="numericInput"]')
@@ -616,14 +655,20 @@ class WorkdayAutomation:
             week_dates = get_week_dates(week_start)
             is_last_week = (week_num == total_weeks)
             total_projects = len(projects)
+            problems = []
             for proj_num, project in enumerate(projects, 1):
+                code = project.get("code", "")
                 task = project["task_name"]
                 hours = project["hours"]
                 #worktags = project["grant_id"]
                 self.log(f"  [{proj_num}/{total_projects}] {task}")
+                if is_special_code(code) and code not in WORKDAY_ABSENCE_IDS:
+                    self.log(f"  ✗ {code} ({task}) is not in Workday's Absence menu — enter it by hand")
+                    problems.append(f"• {code} {task}: not in Workday's Absence menu — enter it by hand")
+                    continue
                 for attempt in range(MAX_RETRIES):
                     try:
-                        self._fill_project(task, hours, week_dates)
+                        self._fill_project(code, task, hours, week_dates)
                         #if worktags == '0':
                         #    self.add_project_row(task, hours, week_dates)
                         #else:
@@ -636,9 +681,12 @@ class WorkdayAutomation:
                             self.page.wait_for_timeout(2000)
                         else:
                             self.log(f"  ✗ Error on '{task}': {e}")
+                            problems.append(f"• {task}: NOT filled ({e})")
+            problems += self._missing_holidays(projects, week_dates)
             # Pedir confirmación antes de guardar
-            notes = ("⚠ Several Workday options, chose the best match — please check:\n"
-                     + "\n".join(self.notes) + "\n\n") if self.notes else ""
+            notes = ("⚠ Check before saving:\n" + "\n".join(problems) + "\n\n") if problems else ""
+            notes += ("⚠ Several Workday options, chose the best match — please check:\n"
+                      + "\n".join(self.notes) + "\n\n") if self.notes else ""
             self.notes = []
             if self.updates:
                 notes += ("Already in Workday (e.g. from the previous month) — only these days changed:\n"
@@ -660,6 +708,38 @@ class WorkdayAutomation:
             else:
                 self.save_and_close()
                 self.log("✅ Process completed successfully!")
+    def week_holidays(self, week_dates: list) -> dict:
+        """
+        Festivos que Workday marca en la cabecera de la semana: 'lun, 2/11 (All Saints' Day.)'.
+        Columnas ghostCell_c4..c10 = domingo..sábado. Returns: {'DD-MM-YYYY': nombre}
+        """
+        out = {}
+        for i, date_str in enumerate(week_dates):
+            header = self.page.locator(f'[data-automation-id="ghostCell_c{i + 4}"]')
+            text = " ".join(header.first.inner_text().split()) if header.count() else ""
+            m = re.search(r"\((.+)\)\s*$", text)
+            if m:
+                out[date_str] = m.group(1).rstrip(".")
+        return out
+
+    def _missing_holidays(self, projects: list, week_dates: list) -> list:
+        """Festivos de Workday (dentro del periodo del CSV) sin ninguna licencia XX ese día."""
+        try:
+            holidays = self.week_holidays(week_dates)
+        except Exception as e:
+            self.log(f"  ⚠ Could not read Workday holidays: {e}")
+            return []
+        in_period = {d for p in projects for d in p["hours"]}
+        absent = {d for p in projects if is_special_code(p.get("code", ""))
+                  for d, v in p["hours"].items() if v > 0}
+        out = []
+        for d, name in holidays.items():
+            if d in in_period and d not in absent:
+                self.log(f"  ⚠ {d}: Workday holiday ({name}) without an absence")
+                out.append(f"• {d[:5]} is a holiday in Workday ({name}) but has no "
+                           f"{INTERNAL_CODES.get('XX05', 'Public Holiday')} (XX05)")
+        return out
+
     def close(self):
         """Cierra la conexión con el navegador."""
         if self.playwright:

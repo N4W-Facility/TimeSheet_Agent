@@ -220,6 +220,14 @@ MESSAGES = {
         "es": "✓ Categorías de Outlook de tus proyectos revisadas. {cats}",
         "pt": "✓ Categorias do Outlook dos seus projetos verificadas. {cats}",
     },
+    "absence_cats_created": {
+        "en": "I added the leave categories to Outlook (holiday, vacation, sick…): {names}. "
+              "Mark each day off as an 8 h block with one of them.",
+        "es": "Agregué a Outlook las categorías de licencias (festivo, vacaciones, enfermedad…): {names}. "
+              "Marca cada día libre como un bloque de 8 h con una de ellas.",
+        "pt": "Adicionei ao Outlook as categorias de licenças (feriado, férias, doença…): {names}. "
+              "Marque cada dia de folga como um bloco de 8 h com uma delas.",
+    },
     "cats_created": {
         "en": "Created: {names}.", "es": "Creadas: {names}.", "pt": "Criadas: {names}.",
     },

@@ -13,8 +13,21 @@ INTERNAL_CODES = {
     "XX01": "Maternity Leave", "XX02": "Administrative Leave Discretionary",
     "XX03": "Parental Leave", "XX04": "Compensation", "XX05": "Public Holiday",
     "XX06": "Medical Leave", "XX07": "TNC Personal Days Leave", "XX08": "Sick (Days)",
-    "XX09": "Vacation (Days)",
+    "XX09": "Vacation (Days)", "XX10": "Parental Leave (Not TNC Funded)",
+    "XX11": "Administrative Leave Legally Required", "XX12": "Administrative Leave Mandatory",
+    "XX13": "Bereavement Leave", "XX14": "Leave Without Pay (LWOP)",
 }
+# Un día de licencia es completo: el usuario lo registra en Outlook como bloque de 8 h
+# (N4W lo reporta así, como OF0104) y Workday recibe 1 (unidad = día).
+# En Workday los XX van en "Tipo de jornada" → submenú Ausencia y se eligen por id
+# (igual en todos los idiomas). XX01 y XX04 no aparecen en el menú (¿dependen del país?).
+WORKDAY_ABSENCE_MENU_ID = "45$17777"
+WORKDAY_ABSENCE_IDS = {
+    "XX02": "2031$46", "XX03": "2031$168", "XX05": "2031$195", "XX06": "2031$43",
+    "XX07": "2031$135", "XX08": "2031$196", "XX09": "2031$61", "XX10": "2031$34",
+    "XX11": "2031$107", "XX12": "2031$128", "XX13": "2031$194", "XX14": "2031$182",
+}
+PUBLIC_HOLIDAY_CODE = "XX05"
 
 # ── Archivos generados (carpeta de trabajo) ──────────────────
 WORK_DIR = os.environ.get("TSA_WORK_DIR",
