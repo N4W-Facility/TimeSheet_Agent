@@ -97,6 +97,10 @@ class ChatApp:
                       fg_color=CARD_BG, hover_color=BORDER, border_color=BORDER,
                       border_width=1, corner_radius=6,
                       command=self._open_settings).pack(side="right", padx=(8, 0))
+        self.btn_clear = ctk.CTkButton(right, text="🗑", width=34, height=30, font=(FONT, 14),
+                                       fg_color=CARD_BG, hover_color=BORDER, border_color=BORDER,
+                                       border_width=1, corner_radius=6, command=self._clear_chat)
+        self.btn_clear.pack(side="right", padx=(8, 0))
         # Clic en el modelo → elegir otro instalado en Ollama (opción discreta)
         self.lbl_model = ctk.CTkLabel(right, text=f"●  {llm.current_model()}",
                                       font=(FONT, 11), text_color=MUTED, cursor="hand2")
@@ -305,6 +309,13 @@ class ChatApp:
 
     # ── Interfaz AgentUI (llamada desde el hilo del agente) ──
 
+    def clear(self):
+        def _clear():
+            self._hide_dropdown()
+            for w in self.chat.winfo_children():
+                w.destroy()
+        self.root.after(0, _clear)
+
     def say(self, text: str):
         color = AMBER if text.startswith("⚠") else TEXT
         self.root.after(0, lambda: self._agent_bubble(text, color))
@@ -445,6 +456,11 @@ class ChatApp:
         self._user_bubble(text)
         self._run_agent(lambda: self.agent.handle(text))
 
+    def _clear_chat(self):
+        """Botón 🗑: limpia la conversación (pantalla + memoria del modelo); no toca horas ni historial."""
+        if not self.busy:
+            self._run_agent(self.agent.clear_chat)
+
     def _run_agent(self, fn):
         self._set_busy(True)
 
@@ -466,6 +482,7 @@ class ChatApp:
         state = "disabled" if busy else "normal"
         self.entry.configure(state=state)
         self.btn_send.configure(state=state)
+        self.btn_clear.configure(state=state)
         if busy:
             self._set_status("Working...", AMBER)
             self._hide_dropdown()

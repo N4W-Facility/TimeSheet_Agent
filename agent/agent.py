@@ -35,6 +35,7 @@ class AgentUI(Protocol):
                      ok: str, cancel: str) -> bool: ...         # bloqueante; acción irreversible
     def pick_file(self, title: str) -> Optional[str]: ...       # explorador de archivos (bloqueante)
     def chart(self, spec: dict): ...                            # tarjeta con gráfica (core.charts)
+    def clear(self): ...                                        # vacía la conversación en pantalla
 
 
 class NeedInfo(Exception):
@@ -85,6 +86,15 @@ HELP_RE = re.compile(
     r"|que (mas )?(puedes|sabes) hacer|en que (me )?(puedes |podes )?ayudar|en que me ayudas"
     r"|como (me )?puedes ayudar"
     r"|o que (mais )?(voce )?(pode|sabe) fazer|em que (voce )?(pode )?me ajudar|como (voce )?pode me ajudar")
+# "Borra el chat" → limpiar la conversación (sin LLM). Solo chat/conversación: nunca horas ni historial
+CLEAR_RE = {
+    "es": re.compile(r"\b(borra|borrar|limpia|limpiar|reinicia|reiniciar|vacia|vaciar) (el |la |esta )?(chat|conversacion)\b"
+                     r"|\b(nuevo chat|nueva conversacion)\b"),
+    "en": re.compile(r"\b(clear|reset|wipe|erase|clean|delete) (the |this |my )?(chat|conversation)\b"
+                     r"|\b(new chat|new conversation)\b"),
+    "pt": re.compile(r"\b(apaga|apagar|limpa|limpar|reinicia|reiniciar) (o |a |esta |este )?(chat|conversa)\b"
+                     r"|\b(novo chat|nova conversa)\b"),
+}
 TARGET_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(%|h|hs|hrs|hours|horas|horas/mes)?")
 
 
@@ -188,6 +198,11 @@ class Agent:
 
     # ── entrada principal (se llama desde un hilo de trabajo) ─
     def handle(self, text: str):
+        clear_lang = self._clear_lang(text)
+        if clear_lang:
+            self._set_lang(clear_lang)
+            self.clear_chat()
+            return
         if self.pending_targets and self._answer_target(text):
             return
         if self.awaiting_codes and self._answer_codes(text):
@@ -272,6 +287,12 @@ class Agent:
             return "es"
         return "en"
 
+    @staticmethod
+    def _clear_lang(text: str) -> Optional[str]:
+        """Idioma de un pedido de limpiar el chat ("borra el chat"), o None si no lo es."""
+        norm = " ".join(re.sub(r"[¿?¡!.,]", " ", suggest._norm(text)).split())
+        return next((lang for lang, rx in CLEAR_RE.items() if rx.search(norm)), None)
+
     def do_help(self, intent=None):
         """Todo lo que el agente sabe hacer, con ejemplos listos para copiar en el idioma del usuario."""
         month = self.loaded.start if self.loaded else self._last_month()
@@ -286,6 +307,15 @@ class Agent:
         """Bienvenida + retomar el paso pendiente o sugerir cómo empezar."""
         self.ui.say(self.m("welcome"))
         self.start_hint()
+
+    def clear_chat(self):
+        """Olvida la conversación y las preguntas a medias; horas, proyectos y periodo cargado siguen."""
+        self.chat_history = []
+        self.pending_targets = []
+        self.awaiting_codes = False
+        self.text = ""
+        self.ui.clear()
+        self.greet()
 
     def start_hint(self):
         """

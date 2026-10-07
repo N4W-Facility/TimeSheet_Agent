@@ -23,6 +23,7 @@ class FakeUI:
         self.charts = []
 
     def say(self, text): self.said.append(text)
+    def clear(self): self.cleared = getattr(self, 'cleared', 0) + 1
     def log(self, text): self.logs.append(text)
     def show(self, title, detail): self.cards.append((title, detail))
     def chart(self, spec): self.charts.append(spec)
@@ -773,6 +774,41 @@ def test_help_does_not_catch_real_requests():
     for text in ("help me categorize my meetings of October", "ayúdame a categorizar mis reuniones",
                  "lee mis horas de septiembre", "hola"):
         assert Agent._help_lang(text) is None
+
+
+def test_clear_chat_forgets_conversation_but_keeps_loaded_period(env):
+    agent, ui, pipe, send = env
+    send("read_hours", month="2026-09")
+    agent.pending_targets = [{'code': 'P100'}]
+    assert agent.chat_history
+
+    ui.said.clear()
+    agent.clear_chat()
+    assert ui.cleared == 1
+    assert agent.chat_history == [] and agent.pending_targets == []
+    assert agent.loaded.start == datetime(2026, 9, 1)                 # el mes leído sigue cargado
+    assert not agent.store.hours("2026-09-01", "2026-09-30").empty   # y el historial intacto
+    assert ui.said[0].startswith("Hi!")
+
+
+@pytest.mark.parametrize("text,lang", [
+    ("Borra el chat", "es"), ("limpiar la conversación", "es"), ("nuevo chat", "es"),
+    ("clear chat", "en"), ("please reset the conversation", "en"), ("new chat", "en"),
+    ("apagar a conversa", "pt"), ("limpa o chat", "pt"),
+])
+def test_clear_chat_by_text_without_llm(env, monkeypatch, text, lang):
+    agent, ui, pipe, send = env
+    agent.pending_targets = [{'code': 'P100'}]                     # ni una pregunta a medias lo atrapa
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h: pytest.fail("clear must not call the LLM"))
+    agent.handle(text)
+    assert ui.cleared == 1 and agent.lang == lang and agent.pending_targets == []
+
+
+def test_clear_does_not_catch_hours_or_history():
+    from agent.agent import Agent
+    for text in ("borra las horas de septiembre", "limpia el historial", "clear my hours",
+                 "lee mis horas", "borra el proyecto P100"):
+        assert Agent._clear_lang(text) is None
 
 
 def test_llm_help_intent_shows_card(env, monkeypatch):
