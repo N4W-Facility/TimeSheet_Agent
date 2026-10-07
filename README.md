@@ -17,7 +17,7 @@ Write to it the way you would write to a colleague, in **English, Spanish or Por
 | 🕒 | **Read your hours** from Outlook | *"read my hours for September"* |
 | 🏷️ | **Categorize** meetings that have no category (it suggests one from past meetings) | *"help me categorize my meetings of September"* |
 | ⚖️ | **Prorate** hours from shared/overhead projects onto your real projects | *"prorate the hours for September"* |
-| 🟢 | **Fill Workday** for a calendar month, week by week | *"fill Workday for September"* |
+| 🟢 | **Fill Workday** for the period you read (a month, a week or a few days), week by week | *"fill Workday for September"*, *"fill Workday with the hours I read"* |
 | 🟦 | **Submit N4W Facility** (Monday–Sunday weeks) | *"submit N4W for September"* |
 | ✅ | **Check what's pending** and whether you're ready to close | *"what's pending?"*, *"am I ready to close September?"* |
 | ✏️ | **Fix an hour** before uploading | *"put 4 h on OF0104 on Tuesday"* |
@@ -39,16 +39,16 @@ Outlook calendar  (category "CODE | Description" on each meeting)
 Hours per project and day ──► ② prorate (only if a project requires it)
       │                              │
       │                              ▼
-      │                       ③ Workday: calendar month, week by week,
+      │                       ③ Workday: the period read, week by week,
       │                          you approve each week before it is saved
       ▼
 ④ N4W Facility: full Monday–Sunday weeks, no prorating, you approve the exact rows
 ```
 
 **TNC rules the agent applies for you:**
-- **Workday** periods are the calendar month (day 1 to the last day). Workday's screen shows Sunday–Saturday weeks, so the first and last weeks of the month are partial.
+- **Workday** takes any period you read: a month, a week or a few days. Workday's screen shows Sunday–Saturday weeks; only the days you read are written and the other days of that week are left as they are.
 - **N4W Facility** periods are full Monday–Sunday weeks (1 or more).
-- **Prorating** is mandatory for Workday when the month has hours on projects marked *Prorate = 1* in the global project list. You choose which projects receive those hours.
+- **Prorating** is mandatory for Workday when the period has hours on projects marked *Prorate = 1* in the global project list. You choose which projects receive those hours.
 - **Closed projects:** hours on a project before it opened, after it closed, or on a project missing from the global list are blocked from upload. You get a list so you can fix them in Outlook.
 - Hours are rounded to **0.25 h**, and the agent expects **8 h per working day**.
 

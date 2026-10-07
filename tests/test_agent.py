@@ -226,11 +226,14 @@ def test_step_by_step_flow_with_mandatory_prorate(env):
     assert pipe.refreshes == 1       # base global: una vez por sesión
 
 
-def test_workday_rejects_non_month_period(env):
-    agent, _, pipe, send = env
+def test_workday_fills_any_read_period(env):
+    agent, ui, pipe, send = env
     pipe.virtual = []
-    send("read_hours", start_date="2026-09-07", end_date="2026-09-13")
-    assert "full calendar month" in send("fill_workday")
+    send("read_hours", start_date="2026-09-07", end_date="2026-09-08")      # dos días
+    assert "fill Workday with the hours I read" in ui.said[-2]
+    assert "Workday filled for 2026-09-07" in send("fill_workday")
+    assert pipe.filled.endswith("ts_20260907.csv") and pipe.weeks_only is None
+    assert "③ Workday ✓" in agent.progress()
 
 
 def test_history_summary_compare_and_targets(env):
@@ -311,12 +314,13 @@ def test_workday_restores_month_after_reading_a_week(env):
     assert agent2.loaded.start == datetime(2026, 10, 1)
 
 
-def test_workday_week_read_without_month_says_why(env):
+def test_workday_week_read_without_month_fills_the_week(env):
     agent, ui, pipe, send = env
-    pipe._path = (lambda self, name, s, e: "/nonexistent.csv").__get__(pipe)
+    pipe.virtual = []
     send("read_hours", start_date="2026-10-05", end_date="2026-10-11")
-    assert "last thing read was 2026-10-05" in send("fill_workday")
-    assert pipe.filled is None
+    send("fill_workday", month="2026-10")        # octubre nunca se leyó completo → la semana
+    assert pipe.filled.endswith("ts_20261005.csv")
+    assert not any("as read on" in t for t in ui.said)
 
 
 # ── sugerencias ──────────────────────────────────────────────

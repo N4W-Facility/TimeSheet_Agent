@@ -60,7 +60,7 @@ If a message only corrects a value of the previous user message (a month, a date
 Steps:
 - read_hours: read the hours from the Outlook calendar for a period. Always the first step ("read/load my hours for October").
 - prorate: prorate (redistribute) the hours of the period already read.
-- fill_workday: fill Workday with the month already read. For ONE week of it ("fill Workday the week of October 4") set start_date = that day.
+- fill_workday: fill Workday with the period already read. For ONE week of it ("fill Workday the week of October 4") set start_date = that day.
 - submit_n4w: submit hours to N4W Facility (Monday-Sunday weeks).
 Status and corrections:
 - status: where am I / what is pending / did I already fill Workday or submit N4W for a period, when, and what was sent ("what's left?", "did I submit N4W last week?", "what did I send in August?"). Set month/dates only if the user names a period.

@@ -75,11 +75,6 @@ MESSAGES = {
         "es": "✓ Horas prorrateadas guardadas. Siguiente paso: “{phrase}”.",
         "pt": "✓ Horas rateadas salvas. Próximo passo: “{phrase}”.",
     },
-    "workday_month_only": {
-        "en": "Workday uses the full calendar month and the last thing read was {period}. Read the month first: “{phrase}”.",
-        "es": "Workday usa el mes calendario completo y lo último leído fue {period}. Primero lee el mes: “{phrase}”.",
-        "pt": "O Workday usa o mês completo e o último lido foi {period}. Primeiro leia o mês: “{phrase}”.",
-    },
     "restored_month": {
         "en": "I'm using {period} as read on {at} ({state}). If your calendar changed since then, read it again.",
         "es": "Uso {period} tal como se leyó el {at} ({state}). Si tu calendario cambió desde entonces, vuelve a leerlo.",
@@ -152,7 +147,7 @@ MESSAGES = {
                "Outlook calendar into Workday and N4W Facility, one step at a time.\n\n"
                "🕒 1 · YOUR HOURS — from Outlook categories “CODE | Description”\n"
                "   › “{read}”\n   › “{categorize}”\n   › “{edit}”\n\n"
-               "🚀 2 · SUBMIT — prorate → Workday (month) · N4W (Mon–Sun weeks)\n"
+               "🚀 2 · SUBMIT — prorate → Workday (any period) · N4W (Mon–Sun weeks)\n"
                "   › “{prorate}”\n   › “{workday}”\n   › “{n4w}”\n"
                "   You approve every week before I save it. Nothing goes out without your OK.\n\n"
                "✅ 3 · STAY ON TRACK\n   › “{status}”\n   › “{close}”\n   › “{week_hours}”\n\n"
@@ -170,7 +165,7 @@ MESSAGES = {
                "de Outlook a Workday y a N4W Facility, paso a paso.\n\n"
                "🕒 1 · TUS HORAS — desde las categorías de Outlook “CÓDIGO | Descripción”\n"
                "   › “{read}”\n   › “{categorize}”\n   › “{edit}”\n\n"
-               "🚀 2 · ENVIAR — prorrateo → Workday (mes) · N4W (semanas lun–dom)\n"
+               "🚀 2 · ENVIAR — prorrateo → Workday (cualquier periodo) · N4W (semanas lun–dom)\n"
                "   › “{prorate}”\n   › “{workday}”\n   › “{n4w}”\n"
                "   Tú apruebas cada semana antes de guardar. Nada sale sin tu OK.\n\n"
                "✅ 3 · AL DÍA\n   › “{status}”\n   › “{close}”\n   › “{week_hours}”\n\n"
@@ -188,7 +183,7 @@ MESSAGES = {
                "do Outlook para o Workday e o N4W Facility, passo a passo.\n\n"
                "🕒 1 · SUAS HORAS — das categorias do Outlook “CÓDIGO | Descrição”\n"
                "   › “{read}”\n   › “{categorize}”\n   › “{edit}”\n\n"
-               "🚀 2 · ENVIAR — rateio → Workday (mês) · N4W (semanas seg–dom)\n"
+               "🚀 2 · ENVIAR — rateio → Workday (qualquer período) · N4W (semanas seg–dom)\n"
                "   › “{prorate}”\n   › “{workday}”\n   › “{n4w}”\n"
                "   Você aprova cada semana antes de salvar. Nada sai sem seu OK.\n\n"
                "✅ 3 · EM DIA\n   › “{status}”\n   › “{close}”\n   › “{week_hours}”\n\n"

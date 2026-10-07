@@ -43,6 +43,8 @@ CASES = [
     ("llena workday", "fill_workday", {}),
     ("fill Workday for September", "fill_workday", {"month": last(9)}),
     ("preencher o workday", "fill_workday", {}),
+    ("llena Workday con las horas leídas", "fill_workday", {}),
+    ("fill Workday with the hours I read", "fill_workday", {}),
     # fill_workday de una semana: start_date = el día mencionado
     ("llena workday la semana del 4 de octubre de 2026", "fill_workday", {"start_date": "2026-10-04"}),
     ("fill Workday only for the week of September 14, 2026", "fill_workday", {"start_date": "2026-09-14"}),

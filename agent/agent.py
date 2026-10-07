@@ -116,6 +116,11 @@ class Agent:
         """Frase sugerida en el idioma del usuario (ver agent/suggest.py)."""
         return suggest.phrase(key, self.lang, month, code or self._top_code())
 
+    def _workday_phrase(self) -> str:
+        """Frase para llenar Workday con lo cargado: el mes por nombre, un rango sin mes."""
+        L = self.loaded
+        return self.p("workday", L.start) if L and L.is_month else self.p("workday_period")
+
     @staticmethod
     def _last_month() -> datetime:
         return datetime.now().replace(day=1) - timedelta(days=1)
@@ -537,11 +542,9 @@ class Agent:
             self.ui.say(self.m("resume_prorate", period=label, at=when,
                                codes=", ".join(self.loaded.virtual), phrase=self.p("prorate", start)))
             return True
-        if is_month:
-            self.ui.say(self.m("resume_workday", period=label, phrase=self.p("workday", start),
-                               state="prorated" if prorated else f"read {when}"))
-            return True
-        return False
+        self.ui.say(self.m("resume_workday", period=label, phrase=self._workday_phrase(),
+                           state="prorated" if prorated else f"read {when}"))
+        return True
 
     # ── periodos ─────────────────────────────────────────────
     def _period(self, intent) -> tuple:
@@ -642,8 +645,8 @@ class Agent:
         self.review_projects(df)                    # cerrados, sin horas, fuera de la lista
         if virtual:
             self.ui.say(self.m("next_prorate", codes=", ".join(virtual), phrase=self.p("prorate", start)))
-        elif is_month:
-            self.ui.say(self.m("next_workday", phrase=self.p("workday", start)))
+        else:
+            self.ui.say(self.m("next_workday", phrase=self._workday_phrase()))
 
         # dedicaciones que faltan: se preguntan en la conversación (las de más horas)
         self.pending_targets = [{'code': c, 'now': float(balance.loc[c, '%'])}
@@ -729,23 +732,22 @@ class Agent:
                                   phrase=self.p("read", start)))
 
     def do_fill_workday(self, intent):
-        # Una semana concreta (start_date = cualquier día de ella) dentro del mes leído
-        sunday = None
+        # Cualquier periodo leído (días, semana, mes). Una semana concreta: start_date = un día de ella
+        sunday, overlaps = None, True
         wanted = intent.month
         if intent.start_date:
             day = datetime.strptime(intent.start_date, '%Y-%m-%d')
             sunday = day - timedelta(days=(day.weekday() + 1) % 7)
             L = self.loaded
-            overlaps = L and sunday <= L.end and sunday + timedelta(days=6) >= L.start
+            overlaps = bool(L and sunday <= L.end and sunday + timedelta(days=6) >= L.start)
             if not wanted and not overlaps:
                 wanted = f"{day:%Y-%m}"
         loaded = self._require_loaded(wanted)
-        if not loaded.is_month:
-            # Lo último leído es una semana/rango: se retoma su mes si ya se había leído
-            if not self._restore_month(loaded.start):
-                raise NeedInfo(self.m("workday_month_only", period=loaded.label,
-                                      phrase=self.p("read", loaded.start)))
-            loaded = self.loaded
+        # Pidió un mes (o una semana fuera de lo leído) y lo cargado es un rango: se retoma
+        # ese mes si ya se había leído; si no, se usa el rango cargado
+        if not loaded.is_month and wanted and (sunday is None or not overlaps):
+            if self._restore_month(datetime.strptime(wanted, '%Y-%m')):
+                loaded = self.loaded
         if loaded.virtual and not loaded.prorated_path:
             raise NeedInfo(self.m("must_prorate", codes=", ".join(loaded.virtual),
                                   phrase=self.p("prorate", loaded.start)))
@@ -767,7 +769,7 @@ class Agent:
                                b=self.p("compare", loaded.start)))
             return
 
-        # Regla del mes: de la semana solo cuentan los días del mes leído
+        # De la semana solo cuentan los días del periodo leído
         start, end = max(sunday, loaded.start), min(sunday + timedelta(days=6), loaded.end)
         label = f"{start:%Y-%m-%d} → {end:%Y-%m-%d}"
         week = df[(df['day'] >= f"{start:%Y-%m-%d}") & (df['day'] <= f"{end:%Y-%m-%d}")]

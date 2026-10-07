@@ -33,6 +33,9 @@ PHRASES = {
     "workday":      {"en": "fill Workday for {month}",
                      "es": "llena Workday de {month}",
                      "pt": "preencher o Workday de {month}"},
+    "workday_period": {"en": "fill Workday with the hours I read",
+                       "es": "llena Workday con las horas leídas",
+                       "pt": "preencher o Workday com as horas lidas"},
     "n4w":          {"en": "submit N4W for {month}",
                      "es": "envía N4W de {month}",
                      "pt": "enviar N4W de {month}"},
@@ -115,8 +118,6 @@ class State:
     def stage(self) -> str:
         if self.start is None:
             return "start"
-        if not self.is_month:
-            return "range"
         if self.virtual and not self.prorated:
             return "prorate"
         if not self.workday_done:
@@ -158,12 +159,11 @@ def phrases(state: State, lang: str, today: date = None) -> List[str]:
     elif stage == "prorate":
         keys = [("prorate", m), ("summary", m), ("alerts", m), ("compare", m)]
     elif stage == "workday":
-        keys = [("workday", m), ("n4w", m), ("close", m), ("edit", None)]
+        keys = [("workday" if state.is_month else "workday_period", m), ("n4w", m), ("close", m),
+                ("edit", None)]
         keys += [("why_prorate", None)] if state.prorated else []
-    elif stage == "done":
+    else:   # done
         keys = [("n4w", m), ("close", m), ("status", None), ("compare", m), ("read", today)]
-    else:   # rango de fechas: no sirve para Workday
-        keys = [("summary", m), ("alerts", m), ("read", last_month)]
 
     keys += [("read", last_month), ("read", today), ("status", None), ("week_hours", None),
              ("close", m or last_month), ("summary", m or last_month),
@@ -185,8 +185,6 @@ def progress(state: State) -> str:
     if state.start is None:
         return "① Read ○  →  ② Prorate ○  →  ③ Workday ○   ·   ④ N4W ○"
     period = f"{state.start:%Y-%m}" if state.is_month else f"from {state.start:%Y-%m-%d}"
-    if not state.is_month:
-        return f"① Read ✓  →  dates only (Workday needs a month)   ·   {period}"
     if state.virtual:
         prorate = "② Prorate ✓" if state.prorated else "② Prorate ●"
     else:
