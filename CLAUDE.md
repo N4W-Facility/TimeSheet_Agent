@@ -16,12 +16,15 @@ El usuario conversa con un agente limitado a **sus horas y los proyectos a los q
 
 Se desarrolla en WSL pero **se ejecuta en Python de Windows** (Outlook y Excel vía `win32com`). Los módulos importan `win32com` (Outlook) dentro de las funciones, así que `core/` se puede importar y testear en Linux.
 
-**Usuarios finales**: doble clic en `TimeSheet_Agent.bat`. Instala/verifica en `%LOCALAPPDATA%\TimeSheetAgent\` micromamba (exe suelto) y el ambiente `timesheet-agent` (se recrea si cambia el hash de `environment.yml`), instala Ollama si falta, arranca el servicio, descarga el modelo y abre `app.py` con `pythonw.exe` (sin consola; errores de arranque → ventana + `app.log`). Con `TSA_OLLAMA_HOST` definido se salta Ollama local. El `.bat` debe quedar en CRLF (`.gitattributes`). No hace falta `playwright install`: Playwright se conecta por CDP al Chrome del usuario.
+**Distribución**: el código vive en `app/`; en la raíz solo `install.bat` y `README.md` (tests, `eval_intents.py`, `CLAUDE.md` y archivos git van con `export-ignore`, fuera del ZIP del release). El usuario baja el *Source code (zip)* del último release y abre `install.bat`: copia `app\` a `%LOCALAPPDATA%\TimeSheetAgent\app` (robocopy /MIR), escribe `version.txt` (del nombre de la carpeta `TimeSheet_Agent-<ver>`, o `local`), crea accesos directos "TimeSheet Agent" en Escritorio y Menú Inicio (icono `app/ui/icon.ico`), registra la desinstalación en HKCU `...\Uninstall\TimeSheetAgent` (`app/uninstall.bat`; conserva historial/ajustes salvo que el usuario diga que no) y abre el lanzador. Instalado, `TimeSheet_Agent.bat` se re-ejecuta desde una copia en `%TEMP%` y corre `update.ps1`: lee la redirección de `/releases/latest` con `curl.exe` (no .NET: el proxy/EDR corta esas conexiones; tampoco la API, por su límite de 60/h por IP), y si el tag cambió baja `archive/refs/tags/<tag>.zip` y cambia `app\` (si la app está abierta, la carpeta está bloqueada y se salta). Requiere repo público. Publicar = crear un release con tag. Desde el repo (`app\TimeSheet_Agent.bat`) nunca se auto-actualiza. `settings.json` vive en `%LOCALAPPDATA%\TimeSheetAgent\` (se migra la primera vez desde junto al código).
+
+**Lanzador**: `TimeSheet_Agent.bat`. Instala/verifica en `%LOCALAPPDATA%\TimeSheetAgent\` micromamba (exe suelto) y el ambiente `timesheet-agent` (se recrea si cambia el hash de `environment.yml`), instala Ollama si falta, arranca el servicio, descarga el modelo y abre `app.py` con `pythonw.exe` (sin consola; errores de arranque → ventana + `app.log`). Con `TSA_OLLAMA_HOST` definido se salta Ollama local. El `.bat` debe quedar en CRLF (`.gitattributes`). No hace falta `playwright install`: Playwright se conecta por CDP al Chrome del usuario.
 
 **Python fijado a 3.11.13**: el EDR de TNC bloqueó ("Acceso denegado", archivo ilegible) el `python.exe` de 3.11.17, publicado el mismo día. No subir de versión sin probar en una máquina corporativa.
 
-Desarrollo (Windows):
+Desarrollo (Windows, desde `app\`):
 ```powershell
+cd app
 $env:MAMBA_ROOT_PREFIX="$env:LOCALAPPDATA\TimeSheetAgent\mamba"
 & "$env:LOCALAPPDATA\TimeSheetAgent\micromamba.exe" run -n timesheet-agent python app.py
 python -m pytest tests -q          # (dentro del ambiente) sin Outlook/Ollama/navegador; también corre en WSL
@@ -32,7 +35,7 @@ python cli.py n4w     --start 2026-10-05 --end 2026-10-25 --email me@tnc.org
 python cli.py categories                            # categorías Outlook de "mis proyectos"
 python eval_intents.py qwen3:1.7b qwen3:4b qwen3:8b   # precisión/velocidad de modelos (Ollama local)
 ```
-Ollama: `TSA_OLLAMA_HOST` / `TSA_OLLAMA_MODEL` (no `OLLAMA_HOST`, que en el servidor suele ser `0.0.0.0`). `settings.json` (email, idioma; `db_path` solo del Excel antiguo para importarlo una vez) lo crea la UI y está en `.gitignore`.
+Ollama: `TSA_OLLAMA_HOST` / `TSA_OLLAMA_MODEL` (no `OLLAMA_HOST`, que en el servidor suele ser `0.0.0.0`). `settings.json` (email, idioma; `db_path` solo del Excel antiguo para importarlo una vez) lo crea la UI en `%LOCALAPPDATA%\TimeSheetAgent\` (fuera de `app\`, que las actualizaciones reemplazan).
 
 ## Architecture
 

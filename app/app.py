@@ -1,6 +1,6 @@
 # ============================================================
 # PUNTO DE ENTRADA — interfaz de chat
-#   Usuarios: doble clic en TimeSheet_Agent.bat (lanza con pythonw, sin consola)
+#   Usuarios: acceso directo "TimeSheet Agent" (install.bat) → TimeSheet_Agent.bat (pythonw, sin consola)
 #   Desarrollo: python app.py
 # Con pythonw no hay consola: un error al arrancar se muestra en una
 # ventana y se guarda en %LOCALAPPDATA%\TimeSheetAgent\app.log.

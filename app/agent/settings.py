@@ -1,11 +1,17 @@
 # ============================================================
-# AJUSTES DEL USUARIO (settings.json junto a la app)
+# AJUSTES DEL USUARIO (%LOCALAPPDATA%\TimeSheetAgent\settings.json)
+#   Fuera de la carpeta del código: una actualización reemplaza app\ sin tocarlos.
 # ============================================================
 import json
 import os
 from dataclasses import asdict, dataclass
 
-SETTINGS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "settings.json")
+APP_HOME = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "TimeSheetAgent")
+SETTINGS_PATH = os.path.join(APP_HOME, "settings.json")
+_CODE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# antes vivía junto al código (app\ o la raíz del repo): se migra la primera vez
+LEGACY_PATHS = [os.path.join(_CODE_DIR, "settings.json"),
+                os.path.join(os.path.dirname(_CODE_DIR), "settings.json")]
 
 
 @dataclass
@@ -18,14 +24,23 @@ class Settings:
 
     @classmethod
     def load(cls) -> "Settings":
+        path = SETTINGS_PATH if os.path.exists(SETTINGS_PATH) else \
+            next((p for p in LEGACY_PATHS if os.path.exists(p)), SETTINGS_PATH)
         try:
-            with open(SETTINGS_PATH, encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
-            return cls(**{k: data.get(k, "") for k in ("db_path", "email", "language", "model", "country")})
+            settings = cls(**{k: data.get(k, "") for k in ("db_path", "email", "language", "model", "country")})
         except (OSError, ValueError):
             return cls()
+        if path != SETTINGS_PATH:
+            try:
+                settings.save()
+            except OSError:
+                pass
+        return settings
 
     def save(self):
+        os.makedirs(APP_HOME, exist_ok=True)
         with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
             json.dump(asdict(self), f, indent=2)
 

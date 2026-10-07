@@ -1,7 +1,23 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 title TimeSheet Agent
-cd /d "%~dp0"
+set "TSA_HOME=%LOCALAPPDATA%\TimeSheetAgent"
+set "INSTALLED_DIR=%TSA_HOME%\app\"
+
+:: Instalado (install.bat): corre desde una copia en TEMP para que la
+:: actualizacion pueda reemplazar app\ (cmd lee el .bat mientras lo ejecuta)
+if /i "%~1"=="--from-temp" (
+    set "APP_DIR=%~2"
+    goto :START
+)
+if /i "%~dp0"=="%INSTALLED_DIR%" (
+    copy /y "%~f0" "%TEMP%\TimeSheetAgent_launch.bat" >nul
+    "%TEMP%\TimeSheetAgent_launch.bat" --from-temp "%~dp0"
+)
+set "APP_DIR=%~dp0"
+
+:START
+cd /d "%TSA_HOME%" 2>nul || cd /d "%APP_DIR%"
 
 echo ============================================
 echo   TimeSheet Agent - Setup and launch
@@ -9,10 +25,17 @@ echo ============================================
 echo.
 
 :: ============================================
+:: Actualizacion (solo instalado): ultimo release de GitHub
+:: ============================================
+if /i "%APP_DIR%"=="%INSTALLED_DIR%" (
+    echo [0/4] Checking for updates...
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%APP_DIR%update.ps1" -TsaHome "%TSA_HOME%"
+    echo.
+)
+
+:: ============================================
 :: Variables
 :: ============================================
-set "APP_DIR=%~dp0"
-set "TSA_HOME=%LOCALAPPDATA%\TimeSheetAgent"
 set "MAMBA_EXE=%TSA_HOME%\micromamba.exe"
 set "MAMBA_ROOT_PREFIX=%TSA_HOME%\mamba"
 set "ENV_NAME=timesheet-agent"

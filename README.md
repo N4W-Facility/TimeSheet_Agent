@@ -78,16 +78,21 @@ Mark each day off in Outlook as an **8-hour block** (or an all-day event) with a
 
 **You need:** Windows, Outlook (desktop app, signed in), Google Chrome, and your TNC Workday access.
 
-1. Get the app folder: clone this repository, or download it as a ZIP and unzip it.
-2. Double-click **`TimeSheet_Agent.bat`**. The first run sets everything up, which takes a few minutes:
-   - installs a private Python environment (in `%LOCALAPPDATA%\TimeSheetAgent`; it does not touch any other Python on your PC),
-   - installs **Ollama** and downloads the local AI model (`qwen3:4b`, which runs without a GPU),
-   - opens the chat.
+1. Open the [latest release](https://github.com/N4W-Facility/TimeSheet_Agent/releases/latest), download **Source code (zip)** and extract it (right click → *Extract All*).
+2. In the extracted folder, double-click **`install.bat`**. It:
+   - copies the app to `%LOCALAPPDATA%\TimeSheetAgent` (a hidden folder, so you never have to deal with the code),
+   - creates a **TimeSheet Agent** shortcut on your Desktop and in the Start menu (type *"TimeSheet"* in Windows search),
+   - adds it to Windows *Installed apps*, with an uninstall option,
+   - opens the app. The first run sets everything up, which takes a few minutes: a private Python environment (it does not touch any other Python on your PC), **Ollama** and the local AI model (`qwen3:4b`, which runs without a GPU).
+
+   You can delete the downloaded folder afterwards.
 3. On first use, set your email in Settings (⚙). The agent then asks for the project codes you work on. If you used the old projects Excel, you can write *"import my Excel"* instead.
 4. Make sure your Outlook meetings carry a category like `OF0104 | Description`. The agent creates the categories for your projects.
 5. Start with *"read my hours for <month>"* and follow the suggestions.
 
-Later runs open directly. When `environment.yml` changes after an update, the `.bat` rebuilds the environment by itself.
+**Updates are automatic.** Each time you open the app it checks for a new release and installs it before starting. Your history, settings and files are kept. If there is no internet, or the app is already open, it starts with the version you have.
+
+**Uninstall:** Windows *Settings → Apps → Installed apps → TimeSheet Agent → Uninstall*. It asks whether to keep your hours history and settings. Your files in `Documents\TimeSheetAgent` and Ollama are not removed.
 
 **Filling Workday:** the agent opens Chrome. You sign in to Workday as usual, then the agent navigates to *Enter Time by Type*, fills each week and shows you a confirmation card before it saves. Don't press **Esc** inside the Workday table, because Workday will ask whether to discard your changes.
 
@@ -107,29 +112,42 @@ Later runs open directly. When `environment.yml` changes after an update, the `.
 
 | Problem | What to do |
 |---|---|
-| "Could not reach the language model" | Check that Ollama is running (llama icon in the tray), or run `TimeSheet_Agent.bat` again. |
+| "Could not reach the language model" | Check that Ollama is running (llama icon in the tray), or open the app again from the Start menu. |
 | A category in Outlook is "without a code" | Its name must start with a valid project code: `CODE \| Description`. |
 | Hours are blocked | The project is closed, not yet open, or missing from the global list. Move those hours in Outlook and read the month again. |
 | Workday picked the wrong task | The confirmation card for that week lists any choice the agent made automatically. Fix it in Workday before approving. |
 | A leave type is not in your Workday Absence menu | XX01 (Maternity) and XX04 (Compensation) are not available for everyone. The agent tells you to enter them by hand. |
-| Wrong country for holidays | Set `"country"` (two letters, e.g. `"CO"`, `"US"`, `"BR"`) in `settings.json` in the app folder. |
+| Wrong country for holidays | Set `"country"` (two letters, e.g. `"CO"`, `"US"`, `"BR"`) in `%LOCALAPPDATA%\TimeSheetAgent\settings.json`. |
 
 ---
 
 ## For developers
 
 ```
-app.py            chat app (CustomTkinter)          cli.py        command-line flows
-agent/            intent parsing (Ollama), dialogue, messages (en/es/pt), suggestions
-pipeline.py       independent steps with callbacks (read, prorate, Workday, N4W)
-core/             Outlook (COM), prorating, N4W Excel, analysis, history, holidays, charts
-core/workday/     Playwright automation over Chrome (CDP), language-independent selectors
-tests/            pytest suite        eval_intents.py   intent accuracy per model
+install.bat           installer (copies app\ to %LOCALAPPDATA%\TimeSheetAgent, shortcuts, uninstall entry)
+app/TimeSheet_Agent.bat   launcher: update check, Python env, Ollama + model, opens the chat
+app/update.ps1        auto-update from the latest GitHub release     app/uninstall.bat
+app/app.py            chat app (CustomTkinter)          app/cli.py    command-line flows
+app/agent/            intent parsing (Ollama), dialogue, messages (en/es/pt), suggestions
+app/pipeline.py       independent steps with callbacks (read, prorate, Workday, N4W)
+app/core/             Outlook (COM), prorating, N4W Excel, analysis, history, holidays, charts
+app/core/workday/     Playwright automation over Chrome (CDP), language-independent selectors
+app/tests/            pytest suite        app/eval_intents.py   intent accuracy per model
 ```
 
-- Run the tests with the app's environment: `%LOCALAPPDATA%\TimeSheetAgent\mamba\envs\timesheet-agent\python.exe -m pytest tests`.
-- After changing the model prompt in `agent/llm.py`, run `eval_intents.py`. Small models are sensitive to prompt wording.
+- Development: run `app\TimeSheet_Agent.bat` from the repository. It never auto-updates; only the installed copy does.
+- Run the tests with the app's environment, from `app\`: `%LOCALAPPDATA%\TimeSheetAgent\mamba\envs\timesheet-agent\python.exe -m pytest tests`.
+- After changing the model prompt in `app/agent/llm.py`, run `eval_intents.py`. Small models are sensitive to prompt wording.
 - `CLAUDE.md` documents the architecture and the domain rules in detail.
+
+### Publishing a new version
+
+1. Push your changes to `main`.
+2. On GitHub: *Releases → Draft a new release*, create a tag such as `v1.1`, add a short note and click *Publish release*.
+
+That is all. Everyone's app updates the next time they open it. The release ZIP holds only `install.bat`, `README.md` and `app\`. Tests, `eval_intents.py` and `CLAUDE.md` are left out through `export-ignore` in `.gitattributes`.
+
+The update downloads the release from the public GitHub URL, so **the repository must be public**. With a private repository, installs and updates fail. The app still opens, but stays on the version it has.
 
 ---
 

@@ -57,6 +57,10 @@ class ChatApp:
     def __init__(self, root: ctk.CTk):
         self.root = root
         self.root.title("TimeSheet Agent")
+        try:
+            self.root.iconbitmap(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico"))
+        except tk.TclError:                       # sin icono la app funciona igual
+            pass
         self.root.geometry("680x780")
         self.root.minsize(560, 600)
         self.root.configure(fg_color=BG)
