@@ -119,7 +119,14 @@ class Agent:
             return suggest.State(has_history=bool(self.store.months()))
         return suggest.State(start=L.start, is_month=L.is_month, virtual=tuple(L.virtual),
                              prorated=bool(L.prorated_path), workday_done=L.workday_done,
-                             has_history=True, top_code=self._top_code())
+                             n4w_done=self._n4w_done(L), has_history=True, top_code=self._top_code())
+
+    def _n4w_done(self, L: Loaded) -> bool:
+        """Hay un envío N4W registrado que toca el periodo leído."""
+        try:
+            return bool((self.store.events(L.start, L.end)['step'] == 'n4w').any())
+        except Exception:
+            return False
 
     def suggestions(self) -> List[str]:
         tips = suggest.phrases(self.state(), self.lang)

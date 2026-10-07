@@ -86,6 +86,7 @@ class State:
     virtual: tuple = ()
     prorated: bool = False
     workday_done: bool = False
+    n4w_done: bool = False                  # N4W enviado para semanas de este periodo
     has_history: bool = False
     top_code: Optional[str] = None          # proyecto principal (para ejemplos)
 
@@ -159,7 +160,7 @@ def phrases(state: State, lang: str, today: date = None) -> List[str]:
 def progress(state: State) -> str:
     """Indicador textual de pasos para el encabezado."""
     if state.start is None:
-        return "① Read ○  →  ② Prorate ○  →  ③ Workday ○"
+        return "① Read ○  →  ② Prorate ○  →  ③ Workday ○   ·   ④ N4W ○"
     period = f"{state.start:%Y-%m}" if state.is_month else f"from {state.start:%Y-%m-%d}"
     if not state.is_month:
         return f"① Read ✓  →  dates only (Workday needs a month)   ·   {period}"
@@ -173,7 +174,9 @@ def progress(state: State) -> str:
         workday = "③ Workday ●"
     else:
         workday = "③ Workday ○"
-    return f"① Read ✓  →  {prorate}  →  {workday}   ·   {period}"
+    # N4W no depende del prorrateo ni de Workday (horas sin prorratear, semanas lun–dom)
+    n4w = "④ N4W ✓" if state.n4w_done else "④ N4W ●"
+    return f"① Read ✓  →  {prorate}  →  {workday}   ·   {n4w}   ·   {period}"
 
 
 def _norm(text: str) -> str:

@@ -272,6 +272,7 @@ def test_resume_previous_session(env, tmp_path):
 def test_suggestions_follow_the_steps(env):
     agent, ui, pipe, send = env
     assert agent.progress().startswith("① Read ○")
+    assert "④ N4W ○" in agent.progress()
     assert agent.suggestions()[0].startswith("read my hours for")
 
     send("read_hours", month="2026-09")
@@ -285,7 +286,10 @@ def test_suggestions_follow_the_steps(env):
     assert agent.suggestions()[0].startswith("fill Workday for")
     send("fill_workday")
     assert "③ Workday ✓" in agent.progress()
+    assert "④ N4W ●" in agent.progress()
     assert agent.suggestions()[0].startswith("submit N4W for")
+    agent.store.log_event(datetime(2026, 9, 7), datetime(2026, 9, 27), 'n4w')
+    assert "④ N4W ✓" in agent.progress()
 
 
 def test_language_is_remembered_for_suggestions(env, monkeypatch):
