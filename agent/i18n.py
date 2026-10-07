@@ -142,6 +142,67 @@ MESSAGES = {
         "es": "✓ N4W Facility enviado ({period}).",
         "pt": "✓ N4W Facility enviado ({period}).",
     },
+    "help_card": {
+        "en": ("I'm your timesheet assistant for the N4W Facility team: I turn your\n"
+               "Outlook calendar into Workday and N4W Facility, one step at a time.\n\n"
+               "🕒 1 · YOUR HOURS — from Outlook categories “CODE | Description”\n"
+               "   › “{read}”\n   › “{categorize}”\n   › “{edit}”\n\n"
+               "🚀 2 · SUBMIT — prorate → Workday (month) · N4W (Mon–Sun weeks)\n"
+               "   › “{prorate}”\n   › “{workday}”\n   › “{n4w}”\n"
+               "   You approve every week before I save it. Nothing goes out without your OK.\n\n"
+               "✅ 3 · STAY ON TRACK\n   › “{status}”\n   › “{close}”\n   › “{week_hours}”\n\n"
+               "📊 4 · ANALYSIS & GOALS\n   › “{summary}”\n   › “{compare}”\n   › “{alerts}”\n"
+               "   › “{averages}”\n   › “{target}”\n   › “{chart}”\n\n"
+               "📁 5 · MY PROJECTS — checked against the global N4W list\n"
+               "   › “{my_projects}”\n   › “{add_project}…”\n   › “{remove_project}”\n"
+               "   › “{import_excel}”\n   › “{sync}”\n\n"
+               "🌴 6 · LEAVE & HOLIDAYS — mark each day off in Outlook as an 8 h block\n"
+               "   with an XX category (XX05 holiday, XX09 vacation, XX08 sick…).\n"
+               "   N4W gets 8 h, Workday gets 1 day, and I warn you about forgotten holidays.\n\n"
+               "🔒 Everything runs on your PC (local AI model). Write naturally, in English,\n"
+               "   Spanish or Portuguese."),
+        "es": ("Soy tu asistente de horas del equipo N4W Facility: paso tu calendario\n"
+               "de Outlook a Workday y a N4W Facility, paso a paso.\n\n"
+               "🕒 1 · TUS HORAS — desde las categorías de Outlook “CÓDIGO | Descripción”\n"
+               "   › “{read}”\n   › “{categorize}”\n   › “{edit}”\n\n"
+               "🚀 2 · ENVIAR — prorrateo → Workday (mes) · N4W (semanas lun–dom)\n"
+               "   › “{prorate}”\n   › “{workday}”\n   › “{n4w}”\n"
+               "   Tú apruebas cada semana antes de guardar. Nada sale sin tu OK.\n\n"
+               "✅ 3 · AL DÍA\n   › “{status}”\n   › “{close}”\n   › “{week_hours}”\n\n"
+               "📊 4 · ANÁLISIS Y OBJETIVOS\n   › “{summary}”\n   › “{compare}”\n   › “{alerts}”\n"
+               "   › “{averages}”\n   › “{target}”\n   › “{chart}”\n\n"
+               "📁 5 · MIS PROYECTOS — validados con la base global de N4W\n"
+               "   › “{my_projects}”\n   › “{add_project}…”\n   › “{remove_project}”\n"
+               "   › “{import_excel}”\n   › “{sync}”\n\n"
+               "🌴 6 · LICENCIAS Y FESTIVOS — marca cada día libre en Outlook como bloque\n"
+               "   de 8 h con una categoría XX (XX05 festivo, XX09 vacaciones, XX08 enfermedad…).\n"
+               "   N4W recibe 8 h, Workday 1 día, y te aviso si olvidaste un festivo.\n\n"
+               "🔒 Todo corre en tu PC (modelo de IA local). Escríbeme natural, en español,\n"
+               "   inglés o portugués."),
+        "pt": ("Sou seu assistente de horas da equipe N4W Facility: levo seu calendário\n"
+               "do Outlook para o Workday e o N4W Facility, passo a passo.\n\n"
+               "🕒 1 · SUAS HORAS — das categorias do Outlook “CÓDIGO | Descrição”\n"
+               "   › “{read}”\n   › “{categorize}”\n   › “{edit}”\n\n"
+               "🚀 2 · ENVIAR — rateio → Workday (mês) · N4W (semanas seg–dom)\n"
+               "   › “{prorate}”\n   › “{workday}”\n   › “{n4w}”\n"
+               "   Você aprova cada semana antes de salvar. Nada sai sem seu OK.\n\n"
+               "✅ 3 · EM DIA\n   › “{status}”\n   › “{close}”\n   › “{week_hours}”\n\n"
+               "📊 4 · ANÁLISE E METAS\n   › “{summary}”\n   › “{compare}”\n   › “{alerts}”\n"
+               "   › “{averages}”\n   › “{target}”\n   › “{chart}”\n\n"
+               "📁 5 · MEUS PROJETOS — validados com a base global do N4W\n"
+               "   › “{my_projects}”\n   › “{add_project}…”\n   › “{remove_project}”\n"
+               "   › “{import_excel}”\n   › “{sync}”\n\n"
+               "🌴 6 · LICENÇAS E FERIADOS — marque cada dia de folga no Outlook como bloco\n"
+               "   de 8 h com uma categoria XX (XX05 feriado, XX09 férias, XX08 doença…).\n"
+               "   O N4W recebe 8 h, o Workday 1 dia, e eu aviso se você esqueceu um feriado.\n\n"
+               "🔒 Tudo roda no seu PC (modelo de IA local). Escreva naturalmente, em português,\n"
+               "   espanhol ou inglês."),
+    },
+    "help_short": {
+        "en": "Here's everything I can help you with 👆 — copy any example. To continue: “{next}”.",
+        "es": "Esto es todo en lo que te puedo ayudar 👆 — copia cualquier ejemplo. Para seguir: “{next}”.",
+        "pt": "Isso é tudo em que posso te ajudar 👆 — copie qualquer exemplo. Para continuar: “{next}”.",
+    },
     "hello": {
         "en": "Hi! Here is where you are:",
         "es": "¡Hola! Así vas:",

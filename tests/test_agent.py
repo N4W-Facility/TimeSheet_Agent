@@ -178,7 +178,7 @@ def test_agent_help_needs_no_settings(monkeypatch):
     monkeypatch.setattr(llm, "parse_intent", lambda t, h: _intent("help", reply="I can read hours"))
     ui = FakeUI()
     agent_mod.Agent(ui, Settings()).handle("what can you do?")
-    assert ui.said == ["I can read hours"]
+    assert ui.cards[-1][0] == "What I can do" and len(ui.said) == 1
 
 
 def test_read_without_projects_asks_for_codes(tmp_path, monkeypatch):
@@ -715,3 +715,33 @@ def test_greeting_shows_status_without_llm(env, monkeypatch):
     agent.handle("¡Hola!")
     assert agent.lang == "es" and "¡Hola! Así vas:" in ui.said
     assert ui.cards[-1][0].startswith("Status ") and "lee mis horas de" in ui.said[-1]
+
+
+@pytest.mark.parametrize("text,lang", [
+    ("¿Qué puedes hacer?", "es"), ("en qué me puedes ayudar", "es"), ("Ayuda", "es"),
+    ("what can you do?", "en"), ("How can you help me?", "en"), ("help", "en"),
+    ("O que você pode fazer?", "pt"), ("em que pode me ajudar?", "pt"),
+])
+def test_help_card_without_llm(env, monkeypatch, text, lang):
+    agent, ui, pipe, send = env
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h: pytest.fail("help must not call the LLM"))
+    agent.handle(text)
+    assert agent.lang == lang
+    title, detail = ui.cards[-1]
+    assert title == "What I can do" and "N4W Facility" in detail and "XX05" in detail
+    assert "{" not in detail and "👆" in ui.said[-1]
+
+
+def test_help_does_not_catch_real_requests():
+    from agent.agent import Agent
+    for text in ("help me categorize my meetings of October", "ayúdame a categorizar mis reuniones",
+                 "lee mis horas de septiembre", "hola"):
+        assert Agent._help_lang(text) is None
+
+
+def test_llm_help_intent_shows_card(env, monkeypatch):
+    agent, ui, pipe, send = env
+    monkeypatch.setattr(llm, "parse_intent",
+                        lambda t, h: llm.Intent(action="help", language="es", reply="Te cuento"))
+    agent.handle("cuéntame de ti, qué funciones tienes")
+    assert ui.cards[-1][0] == "What I can do" and "Te cuento" not in ui.said

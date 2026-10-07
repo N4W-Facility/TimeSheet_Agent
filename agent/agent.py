@@ -78,6 +78,13 @@ IMPORT_RE = re.compile(r"\b(import\w*|excel|xlsx)\b")
 GREETINGS = {"hola": "es", "buenas": "es", "buenos dias": "es", "buenas tardes": "es",
              "hi": "en", "hello": "en", "hey": "en", "good morning": "en",
              "oi": "pt", "ola": "pt", "bom dia": "pt", "boa tarde": "pt"}
+# "¿Qué puedes hacer?" → tarjeta de ayuda (sin LLM: respuesta inmediata y siempre igual)
+HELP_RE = re.compile(
+    r"^(help|ayuda|ajuda)$"
+    r"|what (else )?can you do|how can you help|what do you do"
+    r"|que (mas )?(puedes|sabes) hacer|en que (me )?(puedes |podes )?ayudar|en que me ayudas"
+    r"|como (me )?puedes ayudar"
+    r"|o que (mais )?(voce )?(pode|sabe) fazer|em que (voce )?(pode )?me ajudar|como (voce )?pode me ajudar")
 TARGET_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(%|h|hs|hrs|hours|horas|horas/mes)?")
 
 
@@ -185,6 +192,12 @@ class Agent:
         if greeting:
             self._greeting(text, greeting)
             return
+        help_lang = self._help_lang(text)
+        if help_lang:
+            self._set_lang(help_lang)
+            self._remember("user", text)
+            self.do_help()
+            return
         try:
             intent = llm.parse_intent(text, self.chat_history)
         except Exception as e:
@@ -194,12 +207,15 @@ class Agent:
 
         self._set_lang(intent.language)
         self._remember("user", text)
-        if intent.reply:
+        if intent.reply and intent.action != "help":
             self.ui.say(intent.reply)
             self._remember("assistant", intent.reply)
         self.ui.log(f"[intent] {intent}")
 
-        if intent.action in ("help", "other"):
+        if intent.action == "help":
+            self.do_help()
+            return
+        if intent.action == "other":
             return
         if intent.action in NEEDS_PROJECTS and not self.store.projects_initialized():
             self._ask_projects()
@@ -237,6 +253,28 @@ class Agent:
         except Exception as e:
             self.ui.log(traceback.format_exc())
             self.ui.say(self.m("error", err=e))
+
+    @staticmethod
+    def _help_lang(text: str) -> Optional[str]:
+        """Idioma de una pregunta de ayuda ("¿qué puedes hacer?"), o None si no lo es."""
+        norm = re.sub(r"[¿?¡!.,]", " ", suggest._norm(text))
+        norm = " ".join(norm.split())
+        if not HELP_RE.search(norm):
+            return None
+        if re.search(r"\b(voce|pode|fazer|ajuda|ajudar|o que|em que)\b", norm):
+            return "pt"
+        if re.search(r"\b(puedes|podes|sabes|hacer|ayuda|ayudar|ayudas|que)\b", norm):
+            return "es"
+        return "en"
+
+    def do_help(self, intent=None):
+        """Todo lo que el agente sabe hacer, con ejemplos listos para copiar en el idioma del usuario."""
+        month = self.loaded.start if self.loaded else self._last_month()
+        keys = ["read", "categorize", "edit", "prorate", "workday", "n4w", "status", "close",
+                "week_hours", "summary", "compare", "alerts", "averages", "target", "chart",
+                "my_projects", "add_project", "remove_project", "import_excel", "sync"]
+        self.ui.show("What I can do", self.m("help_card", **{k: self.p(k, month).strip() for k in keys}))
+        self.ui.say(self.m("help_short", next=self.suggestions()[0]))
 
     # ── al abrir la app ──────────────────────────────────────
     def greet(self):

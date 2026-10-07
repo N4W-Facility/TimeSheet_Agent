@@ -90,6 +90,9 @@ PHRASES = {
     "sync":         {"en": "sync my Outlook categories",
                      "es": "sincroniza mis categorías de Outlook",
                      "pt": "sincronizar minhas categorias do Outlook"},
+    "chart":        {"en": "show me a chart of my hours this year",
+                     "es": "muéstrame una gráfica de mis horas este año",
+                     "pt": "mostre um gráfico das minhas horas este ano"},
     "help":         {"en": "what can you do?",
                      "es": "¿qué puedes hacer?",
                      "pt": "o que você pode fazer?"},
@@ -165,7 +168,7 @@ def phrases(state: State, lang: str, today: date = None) -> List[str]:
     keys += [("read", last_month), ("read", today), ("status", None), ("week_hours", None),
              ("close", m or last_month), ("summary", m or last_month),
              ("compare", m or last_month), ("alerts", m or last_month),
-             ("averages", None), ("project_avg", None), ("target", None),
+             ("averages", None), ("project_avg", None), ("target", None), ("chart", None),
              ("load_history", None), ("my_projects", None), ("add_project", None),
              ("remove_project", None), ("import_excel", None), ("update_db", None),
              ("sync", None), ("help", None)]

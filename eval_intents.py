@@ -112,6 +112,8 @@ CASES = [
     ("sincroniza las categorías de outlook", "sync_categories", {}),
     ("¿qué puedes hacer?", "help", {}),
     ("what can you do?", "help", {}),
+    ("¿qué funciones tienes?", "help", {}),          # sin atajo: lo clasifica el LLM
+    ("quais são as suas funções?", "help", {}),
     ("¿cuál es la capital de Francia?", "other", {}),
     ("escribe un poema", "other", {}),
     # pedir todo junto → debe ser UN paso, nunca varios
