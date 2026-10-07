@@ -106,9 +106,22 @@ MESSAGES = {
         "pt": "✓ N4W Facility enviado ({period}).",
     },
     "categories_synced": {
-        "en": "✓ Outlook categories checked: {n} created.",
-        "es": "✓ Categorías de Outlook revisadas: {n} creadas.",
-        "pt": "✓ Categorias do Outlook verificadas: {n} criadas.",
+        "en": "✓ Outlook categories of your projects checked. {cats}",
+        "es": "✓ Categorías de Outlook de tus proyectos revisadas. {cats}",
+        "pt": "✓ Categorias do Outlook dos seus projetos verificadas. {cats}",
+    },
+    "cats_created": {
+        "en": "Created: {names}.", "es": "Creadas: {names}.", "pt": "Criadas: {names}.",
+    },
+    "cats_existing": {
+        "en": "Already in Outlook (kept as they are): {names}.",
+        "es": "Ya existían en Outlook (se dejan como están): {names}.",
+        "pt": "Já existiam no Outlook (ficam como estão): {names}.",
+    },
+    "cats_failed": {
+        "en": "⚠ I couldn't reach Outlook to create the categories; write “sync my Outlook categories” later.",
+        "es": "⚠ No pude acceder a Outlook para crear las categorías; escribe “sincroniza mis categorías de Outlook” más tarde.",
+        "pt": "⚠ Não consegui acessar o Outlook para criar as categorias; escreva “sincronize minhas categorias do Outlook” depois.",
     },
     "no_history": {
         "en": "I have no saved hours for {period}. Write “{a}” or “{b}”.",
@@ -242,9 +255,9 @@ MESSAGES = {
     "frag_not_mine": {"en": "{code} is not in your list", "es": "{code} no está en tu lista",
                       "pt": "{code} não está na sua lista"},
     "projects_added": {
-        "en": "✓ Added to your projects: {codes}. Outlook categories created: {n}.",
-        "es": "✓ Agregado a tus proyectos: {codes}. Categorías de Outlook creadas: {n}.",
-        "pt": "✓ Adicionado aos seus projetos: {codes}. Categorias do Outlook criadas: {n}.",
+        "en": "✓ Added to your projects: {codes}. {cats}",
+        "es": "✓ Agregado a tus proyectos: {codes}. {cats}",
+        "pt": "✓ Adicionado aos seus projetos: {codes}. {cats}",
     },
     "projects_removed": {
         "en": "✓ Removed from your projects: {codes}. Their Outlook categories are kept (your calendar stays intact).",

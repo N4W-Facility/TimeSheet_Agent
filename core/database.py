@@ -46,6 +46,12 @@ def category_name(code: str, description: str) -> str:
     return f"{code} | {description}"
 
 
+def find_category(code: str, names: List[str]) -> Optional[str]:
+    """Categoría existente para el código, aunque su descripción sea otra ('OF0104 | texto viejo')."""
+    want = str(code).strip().upper()
+    return next((n for n in names if str(n).split('|')[0].strip().upper() == want), None)
+
+
 def task_status(task_details_path: str) -> dict:
     """
     Estado global de todos los proyectos de N4W_Task_Details.xlsx:

@@ -60,7 +60,7 @@ Steps:
 - submit_n4w: submit hours to N4W Facility (Monday-Sunday weeks).
 My projects (the list of project codes the user works on):
 - my_projects: show/review the projects I work on ("which are my projects?").
-- add_project: the user works on new project(s) ("I'm also working on FS3602A"). Set "project" (first code).
+- add_project: the user works on new project(s) ("I'm also working on FS3602A"), even if they also ask to create its Outlook category. Set "project" (first code).
 - remove_project: the user no longer works on a project ("I don't work on SE3202 anymore"). Set "project".
 - import_projects: import my project codes from an Excel file ("import my projects from Excel").
 Analysis of saved history:
@@ -73,7 +73,7 @@ Analysis of saved history:
 - show_chart: the user asks for a chart/graph/plot of their hours ("show me a chart of my hours this year", "graph OF0104"). Set month/dates, project or months_back if given.
 Other:
 - update_database: download again the global project list (N4W_Task_Details) and review my projects.
-- sync_categories: create the missing Outlook categories for my projects.
+- sync_categories: create the missing Outlook categories for ALL my projects (no new project code mentioned).
 - help: what you can do / how to use the tool.
 - other: anything not about the user's hours or projects.
 

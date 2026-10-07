@@ -73,6 +73,7 @@ class FakePipe:
     def __init__(self, tmp_path, virtual=("VIRT1",)):
         self.tmp, self.virtual = tmp_path, list(virtual)
         self.approved, self.filled, self.refreshes, self.categories = [], None, 0, []
+        self.outlook = set()        # códigos con categoría ya existente en Outlook
         self.status = {
             'P100': {'status': 'active', 'prorate': False, 'description': 'Project', 'opened': '2020-01-01', 'closed': None},
             'P200': {'status': 'closed', 'prorate': False, 'description': 'Old', 'opened': '2020-01-01', 'closed': '2026-08-31'},
@@ -86,9 +87,10 @@ class FakePipe:
     def task_status(self):
         return self.status
 
-    def create_categories(self, codes):
+    def ensure_categories(self, codes):
         self.categories += list(codes)
-        return list(codes)
+        existing = [f"{c} | old name" for c in codes if c in self.outlook]
+        return {'created': [c for c in codes if c not in self.outlook], 'existing': existing}
 
     def build_timesheet(self, start, end, save_files=True):
         days = [d for d in pd.date_range(start, end) if d.weekday() < 5]
@@ -477,3 +479,15 @@ def test_analysis_comes_with_charts(env):
     assert ui.charts[-1]['kind'] == 'trend' and ui.charts[-1]['x'] == ['2026-08', '2026-09']
     send("show_chart")
     assert ui.charts[-1]['kind'] == 'stacked'
+
+
+def test_add_project_reports_created_and_existing_categories(env):
+    agent, ui, pipe, send = env
+    agent.store.remove_projects(['P100', 'VIRT1'])
+    agent.store.add_projects(['VIRT1'])
+    pipe.outlook = {'P300'}                                         # P300 ya tiene categoría (otro nombre)
+    agent.status = pipe.status
+    agent._add_codes(['P100', 'P300', 'VIRT1'])
+    said = " ".join(ui.said)
+    assert "VIRT1" in pipe.categories                               # ya en la lista: igual se revisa
+    assert "Created: P100" in said and "Already in Outlook (kept as they are): P300 | old name" in said

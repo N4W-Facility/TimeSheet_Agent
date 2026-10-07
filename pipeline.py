@@ -117,17 +117,28 @@ class Pipeline:
         return database.catalog(self.task_details_path)
 
     # ── Categorías de Outlook ────────────────────────────────
-    def create_categories(self, codes: List[str]) -> List[str]:
-        """Crea las categorías 'CODE | Descripción' que falten. Devuelve las creadas."""
+    def ensure_categories(self, codes: List[str]) -> dict:
+        """
+        Crea 'CODE | Task_Name_Description' para los códigos sin categoría. Una categoría
+        con el mismo código y otra descripción cuenta como existente: no se duplica ni se
+        renombra (renombrar en Outlook no actualiza las reuniones ya categorizadas).
+        Returns: {'created': [nombres], 'existing': [nombres]}
+        """
         cat = self.catalog().set_index('Code')
-        created = []
+        names = outlook.list_categories()
+        out = {'created': [], 'existing': []}
         for code in codes:
-            if code not in cat.index:
-                continue
-            name = cat.loc[code, 'Category']
-            if outlook.add_category(name):
-                created.append(name)
-        return created
+            found = database.find_category(code, names)
+            if found:
+                out['existing'].append(found)
+            elif code in cat.index and outlook.add_category(cat.loc[code, 'Category']):
+                out['created'].append(cat.loc[code, 'Category'])
+                names.append(cat.loc[code, 'Category'])
+        return out
+
+    def create_categories(self, codes: List[str]) -> List[str]:
+        """Crea las categorías que falten. Devuelve las creadas."""
+        return self.ensure_categories(codes)['created']
 
     # ── Outlook → timesheet ──────────────────────────────────
     def build_timesheet(self, start: datetime, end: datetime, save_files: bool = True) -> dict:

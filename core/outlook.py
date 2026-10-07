@@ -5,7 +5,7 @@
 # ============================================================
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 
@@ -112,6 +112,14 @@ def build_timesheet(meetings: pd.DataFrame, start: datetime, end: datetime,
     value = value.drop(columns=value.columns[-1])   # día extra (end_exclusive)
     value.index.name = 'Code'
     return value, unmapped
+
+
+def list_categories() -> List[str]:
+    """Nombres de las categorías de Outlook del usuario."""
+    import win32com.client
+
+    categories = win32com.client.Dispatch("Outlook.Application").Session.Categories
+    return [categories.Item(i).Name for i in range(1, categories.Count + 1)]
 
 
 def add_category(name: str) -> bool:

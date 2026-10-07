@@ -320,21 +320,29 @@ class Agent:
             label += "  · prorate"
         return f"{label}  · {detail}" if detail else label
 
-    def _create_categories(self, codes: List[str]) -> List[str]:
+    def _create_categories(self, codes: List[str]) -> str:
+        """Asegura la categoría de Outlook de cada código. Devuelve el resumen para el chat."""
         try:
-            return self._pipeline().create_categories(codes)
+            res = self._pipeline().ensure_categories(codes)
         except Exception as e:                      # sin Outlook: la lista igual se guarda
             self.ui.log(f"⚠ Outlook categories not created: {e}")
-            return []
+            return self.m("cats_failed")
+        parts = []
+        if res['created']:
+            parts.append(self.m("cats_created", names=", ".join(res['created'])))
+        if res['existing']:
+            parts.append(self.m("cats_existing", names=", ".join(res['existing'])))
+        return " ".join(parts)
 
     def _add_codes(self, codes: List[str], unknown: List[str] = ()):
         """Verifica los códigos con la base global y confirma en una tarjeta cuáles agregar."""
         mine = set(self.store.my_projects())
-        notes, labels = [], {}
+        notes, labels, already = [], {}, []
         for code in codes:
             info = self.status.get(code.upper())
             if code in mine:
                 notes.append(self.m("frag_already", code=code))
+                already.append(code)
             elif not info:
                 notes.append(self.m("frag_missing", code=code))
             elif info['status'] != 'active':
@@ -344,6 +352,10 @@ class Agent:
         notes += [self.m("frag_missing", code=c) for c in unknown]
         if notes:
             self.ui.say(self.m("codes_checked", details="; ".join(notes)))
+        if already:                                 # ya en la lista: igual se revisa su categoría
+            cats = self._create_categories(already)
+            if cats:
+                self.ui.say(cats)
         if not labels:
             return
         chosen = self.ui.decide(Decision(
@@ -354,8 +366,8 @@ class Agent:
             return
         codes = [labels[c] for c in chosen]
         self.store.add_projects(codes)
-        created = self._create_categories(codes)
-        self.ui.say(self.m("projects_added", codes=", ".join(codes), n=len(created)))
+        cats = self._create_categories(codes)
+        self.ui.say(self.m("projects_added", codes=", ".join(codes), cats=cats))
 
     def review_projects(self, charged: Optional[pd.DataFrame] = None):
         """
@@ -729,8 +741,11 @@ class Agent:
         self.review_projects()
 
     def do_sync_categories(self, intent):
-        created = self._pipeline().create_categories(self.store.my_projects())
-        self.ui.say(self.m("categories_synced", n=len(created)))
+        mine = self.store.my_projects()
+        if not mine:
+            self._ask_projects()
+            return
+        self.ui.say(self.m("categories_synced", cats=self._create_categories(mine)))
 
     # ── ANÁLISIS ─────────────────────────────────────────────
     def _chart(self, spec: Optional[dict]):

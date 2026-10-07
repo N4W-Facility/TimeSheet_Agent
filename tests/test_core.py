@@ -308,3 +308,10 @@ def test_chart_specs_and_renderers():
         fig, artists = charts.mpl_figure(spec)                   # dibuja sin pantalla
         assert artists
         assert charts.plotly_figure(spec).data
+
+
+def test_find_category_by_code_not_name():
+    from core.database import find_category
+    names = ['OF0104 | Old description', 'FS3602A | Something', 'Personal']
+    assert find_category('of0104', names) == 'OF0104 | Old description'
+    assert find_category('FS3602', names) is None
