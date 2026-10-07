@@ -90,6 +90,16 @@ MESSAGES = {
         "es": "✓ Workday llenado para {period}. Ahora puedes escribir: “{a}” o “{b}”.",
         "pt": "✓ Workday preenchido para {period}. Agora você pode escrever: “{a}” ou “{b}”.",
     },
+    "workday_week_done": {
+        "en": "✓ Workday filled for the week {period}.",
+        "es": "✓ Workday llenado para la semana {period}.",
+        "pt": "✓ Workday preenchido para a semana {period}.",
+    },
+    "workday_week_empty": {
+        "en": "There are no hours to fill in the week {period}.",
+        "es": "No hay horas para llenar en la semana {period}.",
+        "pt": "Não há horas para preencher na semana {period}.",
+    },
     "n4w_done": {
         "en": "✓ N4W Facility submitted ({period}).",
         "es": "✓ N4W Facility enviado ({period}).",

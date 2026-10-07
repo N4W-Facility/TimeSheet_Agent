@@ -56,7 +56,7 @@ The user controls every step: one message = one action. Never combine steps.
 Steps:
 - read_hours: read the hours from the Outlook calendar for a period. Always the first step ("read/load my hours for October").
 - prorate: prorate (redistribute) the hours of the period already read.
-- fill_workday: fill Workday with the period already read.
+- fill_workday: fill Workday with the month already read. For ONE week of it ("fill Workday the week of October 4") set start_date = that day.
 - submit_n4w: submit hours to N4W Facility (Monday-Sunday weeks).
 My projects (the list of project codes the user works on):
 - my_projects: show/review the projects I work on ("which are my projects?").

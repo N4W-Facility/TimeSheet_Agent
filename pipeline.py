@@ -206,25 +206,30 @@ class Pipeline:
         return path
 
     # ── Workday ──────────────────────────────────────────────
-    def fill_workday(self, csv_path: str, confirm_each_week: bool = True):
+    def fill_workday(self, csv_path: str, confirm_each_week: bool = True, weeks_only: list = None):
         """
-        Requiere Chrome con CDP, sesión iniciada y la tabla
-        'Enter Time by Type' de la PRIMERA semana abierta.
+        Requiere Chrome con CDP y sesión iniciada; la automatización llega sola
+        a la tabla 'Enter Time by Type' de la primera semana.
+        weeks_only: domingos 'YYYY-MM-DD' a llenar (None = todas las del CSV).
         """
         from core.workday.automation import WorkdayAutomation
         from core.workday.browser_launcher import is_cdp_running, launch_chrome
         from core.workday.csv_reader import parse_csv
 
         weeks = parse_csv(csv_path)
+        if weeks_only is not None:
+            weeks = {w: p for w, p in weeks.items() if w in weeks_only}
+            if not weeks:
+                raise ValueError("No hours to fill in the requested week.")
         self.cb.log(f"{len(weeks)} weeks | {sum(len(p) for p in weeks.values())} entries")
 
         if not is_cdp_running() and not launch_chrome(log_callback=self.cb.log):
             raise RuntimeError("Could not open Chrome with remote debugging.")
         self._approve(
             "Workday ready?",
-            "1. Sign in to Workday in the Chrome window that just opened.\n"
-            "2. Open 'Enter Time by Type' ('Introducción de horas por tipo') for the week starting "
-            f"{next(iter(weeks))} (Sunday).\n\nApprove when the table is visible.")
+            "Sign in to Workday in the Chrome window that just opened.\n"
+            "The assistant will open the week starting "
+            f"{next(iter(weeks))} (Sunday) by itself.\n\nApprove when you are signed in.")
 
         confirm = ((lambda msg: self.cb.approve("Save this week?", msg))
                    if confirm_each_week else (lambda msg: True))

@@ -3,11 +3,12 @@
 # Selectores basados en data-automation-id (independiente del idioma)
 # ============================================================
 import time
+from datetime import date
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
-from config import TIMEOUT, MAX_RETRIES, CDP_URL
+from config import TIMEOUT, MAX_RETRIES, CDP_URL, WORKDAY_TIME_CALENDAR_URL
 from core.workday.i18n import detect_language, get_texts
 from core.workday.csv_reader import get_week_dates, format_hours
-from core.workday.matching import best_option, option_task
+from core.workday.matching import best_option, option_task, week_label_matches, week_months
 class WorkdayAutomation:
     def __init__(self, log_callback=None, confirm_callback=None):
         self.playwright = None
@@ -160,6 +161,61 @@ class WorkdayAutomation:
         self.page.wait_for_timeout(1500)
         self.log("✓ Week confirmed, table ready")
 
+    def open_week_table(self, week_start: str):
+        """
+        Llega a la tabla de la semana sin depender del idioma:
+        calendario (URL fija) → ◀/▶ hasta el mes → Acciones → 1ª opción (por tipo)
+        → semana → Siguiente. Una semana que cruza meses se busca en ambos.
+        week_start: 'YYYY-MM-DD' del domingo de la semana.
+        """
+        dialog = self.page.locator('[data-automation-id="popUpDialog"]')
+        for year, month in week_months(week_start):
+            self._open_week_dialog(year, month)
+            for radio in dialog.get_by_role("radio").all():
+                label = radio.get_attribute("aria-label") or radio.evaluate(
+                    "el => el.labels && el.labels[0] ? el.labels[0].textContent : ''")
+                if week_label_matches(label, week_start):
+                    radio.check(force=True)     # el input es invisible (opacity 0), Workday pinta encima
+                    self.log(f"✓ Week selected: {label.strip()}")
+                    break
+            else:
+                dialog.locator('[data-automation-id="wd-CommandButton_uic_cancelButton"]').click()
+                dialog.wait_for(state="hidden")
+                continue
+            break
+        else:
+            raise Exception(f"Week starting {week_start} is not offered by Workday.")
+        # Siguiente: el botón de comando del diálogo que no es Cancelar
+        dialog.locator('button[data-automation-id="wd-CommandButton"]').last.click()
+        self.page.locator('[data-automation-id="addRow"]').wait_for(state="visible")
+        self.page.wait_for_timeout(1000)
+        self.log("✓ Week table ready")
+
+    def _open_week_dialog(self, year: int, month: int):
+        """Calendario en year/month (◀/▶ desde el mes actual) → Acciones → por tipo."""
+        self.log(f"Opening the Workday time calendar ({year}-{month:02d})...")
+        self.page.goto(WORKDAY_TIME_CALENDAR_URL)
+        actions_btn = self.page.locator('[data-testid="actions_button"]')
+        actions_btn.wait_for(state="visible")
+        today = date.today()
+        steps = (year - today.year) * 12 + (month - today.month)
+        arrow = self.page.locator('[data-testid="arrows_button_%s"]' % ("next" if steps > 0 else "previous"))
+        date_range = self.page.locator('[data-testid="date_range"]')
+        for _ in range(abs(steps)):
+            shown = date_range.inner_text()
+            arrow.click()
+            self.page.wait_for_function(
+                "t => { const e = document.querySelector('[data-testid=\"date_range\"]');"
+                " return e && e.innerText !== t; }", arg=shown)
+        actions_btn.click()
+        # Las opciones traen el texto traducido; la posición es estable (0 = por tipo)
+        self.page.locator('[role="menuitem"][data-id="0"]').click()
+        try:
+            self.page.locator('[data-automation-id="popUpDialog"] [data-automation-id="radioBtn"]'
+                              ).first.wait_for(state="visible")
+        except PlaywrightTimeout:
+            raise Exception("The Actions menu did not open the week selection — "
+                            "Workday may have changed the order of its options.")
 
     def add_worktags(self, worktags: list[str]):
         """
@@ -498,6 +554,9 @@ class WorkdayAutomation:
         """
         total_weeks = len(weeks_data)
         week_num = 0
+        # Siempre llegar a la tabla de la primera semana (una tabla ya abierta podría ser de otra semana)
+        if weeks_data:
+            self.open_week_table(next(iter(weeks_data)))
         for week_start, projects in weeks_data.items():
             week_num += 1
             self.log(f"{'='*45}")

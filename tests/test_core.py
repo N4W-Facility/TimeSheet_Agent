@@ -237,3 +237,19 @@ def test_workday_picks_best_matching_option():
     assert best_option('IS General Admin', labels) == (1, 1.0)
     idx, score = best_option('IS General Admn', labels)            # sin coincidencia exacta
     assert idx == 1 and score < 1.0
+
+
+def test_workday_week_label_any_date_format():
+    from core.workday.matching import week_label_matches
+    assert week_label_matches('27/09/2026 - 03/10/2026', '2026-09-27')       # es / pt
+    assert week_label_matches('09/27/2026 - 10/03/2026', '2026-09-27')       # en-US
+    assert not week_label_matches('04/10/2026 - 10/10/2026', '2026-09-27')
+    assert not week_label_matches('27/09/2025 - 03/10/2025', '2026-09-27')
+    assert not week_label_matches('', '2026-09-27')
+
+
+def test_workday_week_months_crossing():
+    from core.workday.matching import week_months
+    assert week_months('2026-10-04') == [(2026, 10)]
+    assert week_months('2026-09-27') == [(2026, 9), (2026, 10)]
+    assert week_months('2026-12-27') == [(2026, 12), (2027, 1)]

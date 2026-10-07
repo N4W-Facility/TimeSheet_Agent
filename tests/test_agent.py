@@ -114,8 +114,9 @@ class FakePipe:
     def _approve(self, title, detail):
         self.approved.append(title)
 
-    def fill_workday(self, csv_path):
+    def fill_workday(self, csv_path, weeks_only=None):
         self.filled = csv_path
+        self.weeks_only = weeks_only
 
 
 @pytest.fixture
@@ -419,3 +420,31 @@ def test_import_excel_unreadable_file(tmp_path, monkeypatch):
     agent.handle("import my projects from Excel")
     assert any("couldn't read bad.xlsx" in t for t in ui.said)
     assert "which projects" in ui.said[-1]
+
+
+def test_workday_single_week_of_read_month(env):
+    agent, ui, pipe, send = env
+    pipe.virtual = []
+    send("read_hours", month="2026-09")
+    send("fill_workday", start_date="2026-09-09")                  # miércoles → semana del domingo 6
+    assert pipe.weeks_only == ["2026-09-06"]
+    assert pipe.approved[-1].startswith("Fill Workday week 2026-09-06")
+    assert not agent.loaded.workday_done                           # el mes completo sigue pendiente
+
+
+def test_workday_week_crossing_months_keeps_month_days(env):
+    agent, ui, pipe, send = env
+    pipe.virtual = []
+    send("read_hours", month="2026-09")
+    send("fill_workday", start_date="2026-09-29")                  # semana 27/09–03/10
+    assert pipe.weeks_only == ["2026-09-27"]
+    assert "2026-09-27 → 2026-09-30" in pipe.approved[-1]           # solo los días de septiembre
+
+
+def test_workday_week_of_other_month_asks_to_read_it(env):
+    agent, ui, pipe, send = env
+    pipe.virtual = []
+    send("read_hours", month="2026-09")
+    pipe.filled = None
+    assert send("fill_workday", start_date="2026-11-10").startswith("First read your hours")
+    assert pipe.filled is None

@@ -30,6 +30,8 @@ ONEDRIVE_ACCOUNT_HINT = "The Nature Conservancy"
 
 # ── Workday ──────────────────────────────────────────────────
 WORKDAY_HOME_URL = "https://wd108.myworkday.com/nature/d/home.htmld"
+# Calendario "Introducción de horas": id de tarea fijo, igual en todos los idiomas
+WORKDAY_TIME_CALENDAR_URL = "https://wd108.myworkday.com/nature/d/task/2997$4767.htmld"
 TIMEOUT = 30000        # ms
 MAX_RETRIES = 3
 CDP_PORT = 9222

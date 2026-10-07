@@ -590,7 +590,17 @@ class Agent:
         self.ui.say(self.m("prorate_done", phrase=self.p("workday", loaded.start)))
 
     def do_fill_workday(self, intent):
-        loaded = self._require_loaded(intent.month)
+        # Una semana concreta (start_date = cualquier día de ella) dentro del mes leído
+        sunday = None
+        wanted = intent.month
+        if intent.start_date:
+            day = datetime.strptime(intent.start_date, '%Y-%m-%d')
+            sunday = day - timedelta(days=(day.weekday() + 1) % 7)
+            L = self.loaded
+            overlaps = L and sunday <= L.end and sunday + timedelta(days=6) >= L.start
+            if not wanted and not overlaps:
+                wanted = f"{day:%Y-%m}"
+        loaded = self._require_loaded(wanted)
         if not loaded.is_month:
             raise NeedInfo(self.m("workday_month_only", phrase=self.p("read", self._last_month())))
         if loaded.virtual and not loaded.prorated_path:
@@ -601,13 +611,27 @@ class Agent:
         df = analysis.to_long(pd.read_csv(csv_path))
         pipe = self._pipeline()
         source = "prorated" if loaded.prorated_path else "Outlook"
-        pipe._approve(f"Fill Workday {loaded.label} with these hours ({source})?",
-                      analysis.balance_text(df, loaded.start, loaded.end, config.EXPECTED_DAILY_HOURS))
-        pipe.fill_workday(csv_path)
-        self.store.log_event(loaded.start, loaded.end, 'workday')
-        loaded.workday_done = True
-        self.ui.say(self.m("workday_done", period=loaded.label, a=self.p("n4w", loaded.start),
-                           b=self.p("compare", loaded.start)))
+        if sunday is None:
+            pipe._approve(f"Fill Workday {loaded.label} with these hours ({source})?",
+                          analysis.balance_text(df, loaded.start, loaded.end, config.EXPECTED_DAILY_HOURS))
+            pipe.fill_workday(csv_path)
+            self.store.log_event(loaded.start, loaded.end, 'workday')
+            loaded.workday_done = True
+            self.ui.say(self.m("workday_done", period=loaded.label, a=self.p("n4w", loaded.start),
+                               b=self.p("compare", loaded.start)))
+            return
+
+        # Regla del mes: de la semana solo cuentan los días del mes leído
+        start, end = max(sunday, loaded.start), min(sunday + timedelta(days=6), loaded.end)
+        label = f"{start:%Y-%m-%d} → {end:%Y-%m-%d}"
+        week = df[(df['day'] >= f"{start:%Y-%m-%d}") & (df['day'] <= f"{end:%Y-%m-%d}")]
+        if week.empty:
+            raise NeedInfo(self.m("workday_week_empty", period=label))
+        pipe._approve(f"Fill Workday week {label} with these hours ({source})?",
+                      analysis.balance_text(week, start, end, config.EXPECTED_DAILY_HOURS))
+        pipe.fill_workday(csv_path, weeks_only=[f"{sunday:%Y-%m-%d}"])
+        self.store.log_event(start, end, 'workday')
+        self.ui.say(self.m("workday_week_done", period=label))
 
     def do_submit_n4w(self, intent):
         pipe = self._pipeline()
