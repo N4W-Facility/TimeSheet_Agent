@@ -36,6 +36,24 @@ PHRASES = {
     "n4w":          {"en": "submit N4W for {month}",
                      "es": "envía N4W de {month}",
                      "pt": "enviar N4W de {month}"},
+    "status":       {"en": "what's pending?",
+                     "es": "¿qué me falta?",
+                     "pt": "o que falta?"},
+    "close":        {"en": "am I ready to close {month}?",
+                     "es": "¿estoy listo para cerrar {month}?",
+                     "pt": "estou pronto para fechar {month}?"},
+    "week_hours":   {"en": "how many hours do I have this week?",
+                     "es": "¿cuántas horas llevo esta semana?",
+                     "pt": "quantas horas tenho esta semana?"},
+    "why_prorate":  {"en": "why did you prorate like that?",
+                     "es": "¿por qué prorrateaste así?",
+                     "pt": "por que você rateou assim?"},
+    "edit":         {"en": "put 4 h on {code} on Tuesday",
+                     "es": "pon 4 h a {code} el martes",
+                     "pt": "coloque 4 h em {code} na terça"},
+    "categorize":   {"en": "help me categorize my meetings of {month}",
+                     "es": "ayúdame a categorizar mis reuniones de {month}",
+                     "pt": "me ajude a categorizar minhas reuniões de {month}"},
     "summary":      {"en": "summary of my hours for {month}",
                      "es": "resumen de mis horas de {month}",
                      "pt": "resumo das minhas horas de {month}"},
@@ -132,18 +150,20 @@ def phrases(state: State, lang: str, today: date = None) -> List[str]:
 
     stage = state.stage
     if stage == "start":
-        keys = [("read", last_month), ("read", today)]
+        keys = [("read", last_month), ("read", today), ("status", None)]
         keys += [("load_history", None), ("averages", None)] if state.has_history else [("load_history", None)]
     elif stage == "prorate":
         keys = [("prorate", m), ("summary", m), ("alerts", m), ("compare", m)]
     elif stage == "workday":
-        keys = [("workday", m), ("n4w", m), ("alerts", m), ("compare", m)]
+        keys = [("workday", m), ("n4w", m), ("close", m), ("edit", None)]
+        keys += [("why_prorate", None)] if state.prorated else []
     elif stage == "done":
-        keys = [("n4w", m), ("compare", m), ("alerts", m), ("read", today)]
+        keys = [("n4w", m), ("close", m), ("status", None), ("compare", m), ("read", today)]
     else:   # rango de fechas: no sirve para Workday
         keys = [("summary", m), ("alerts", m), ("read", last_month)]
 
-    keys += [("read", last_month), ("read", today), ("summary", m or last_month),
+    keys += [("read", last_month), ("read", today), ("status", None), ("week_hours", None),
+             ("close", m or last_month), ("summary", m or last_month),
              ("compare", m or last_month), ("alerts", m or last_month),
              ("averages", None), ("project_avg", None), ("target", None),
              ("load_history", None), ("my_projects", None), ("add_project", None),

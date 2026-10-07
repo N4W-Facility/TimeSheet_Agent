@@ -21,6 +21,7 @@ from agent import i18n, llm, suggest
 from agent.settings import Settings
 from core import analysis, categorize, charts, database, n4w, timesheet
 from core.history import History
+from core.utils import get_date_columns
 from pipeline import Callbacks, Cancelled, Decision, Pipeline
 
 
@@ -73,6 +74,10 @@ STOP_WORDS = {"stop", "later", "cancel", "parar", "despues", "luego", "cancelar"
 ANSWER_WORDS = {"en": ("same", "skip"), "es": ("igual", "omitir"), "pt": ("mesmo", "pular")}
 # "importar mi Excel" → explorador de archivos (sin LLM)
 IMPORT_RE = re.compile(r"\b(import\w*|excel|xlsx)\b")
+# Saludo a secas → estado del periodo (sin LLM: el modelo pequeño lo confunde con otros pasos)
+GREETINGS = {"hola": "es", "buenas": "es", "buenos dias": "es", "buenas tardes": "es",
+             "hi": "en", "hello": "en", "hey": "en", "good morning": "en",
+             "oi": "pt", "ola": "pt", "bom dia": "pt", "boa tarde": "pt"}
 TARGET_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(%|h|hs|hrs|hours|horas|horas/mes)?")
 
 
@@ -164,6 +169,10 @@ class Agent:
         if self.awaiting_codes and self._answer_codes(text):
             return
         self.text = text
+        greeting = GREETINGS.get(suggest._norm(text).strip(" !.¡,"))
+        if greeting:
+            self._greeting(text, greeting)
+            return
         try:
             intent = llm.parse_intent(text, self.chat_history)
         except Exception as e:
@@ -171,13 +180,7 @@ class Agent:
             self.ui.say(self.m("llm_down", err=e))
             return
 
-        self.lang = intent.language or self.lang
-        if self.lang != self.settings.language:      # el saludo y las sugerencias usan este idioma
-            self.settings.language = self.lang
-            try:
-                self.settings.save()
-            except OSError:
-                pass
+        self._set_lang(intent.language)
         self._remember("user", text)
         if intent.reply:
             self.ui.say(intent.reply)
@@ -199,6 +202,26 @@ class Agent:
             self.ui.say(str(e))
         except Cancelled:
             self.ui.say(self.m("cancelled"))
+        except Exception as e:
+            self.ui.log(traceback.format_exc())
+            self.ui.say(self.m("error", err=e))
+
+    def _set_lang(self, lang: Optional[str]):
+        self.lang = lang or self.lang
+        if self.lang != self.settings.language:      # el saludo y las sugerencias usan este idioma
+            self.settings.language = self.lang
+            try:
+                self.settings.save()
+            except OSError:
+                pass
+
+    def _greeting(self, text: str, lang: str):
+        """"Hola" → dónde va el usuario (estado del periodo actual) y el siguiente paso."""
+        self._set_lang(lang)
+        self._remember("user", text)
+        self.ui.say(self.m("hello"))
+        try:
+            self.do_status(llm.Intent(action="status", language=lang))
         except Exception as e:
             self.ui.log(traceback.format_exc())
             self.ui.say(self.m("error", err=e))
@@ -651,7 +674,8 @@ class Agent:
                           analysis.balance_text(df, loaded.start, loaded.end, config.EXPECTED_DAILY_HOURS))
             if not self._fill(pipe, csv_path):
                 return
-            self.store.log_event(loaded.start, loaded.end, 'workday')
+            self.store.log_event(loaded.start, loaded.end, 'workday',
+                                 analysis.table_text(analysis.by_project(df)[['Hours']]))
             loaded.workday_done = True
             self.ui.say(self.m("workday_done", period=loaded.label, a=self.p("n4w", loaded.start),
                                b=self.p("compare", loaded.start)))
@@ -668,7 +692,7 @@ class Agent:
                       analysis.balance_text(week, start, end, config.EXPECTED_DAILY_HOURS))
         if not self._fill(pipe, csv_path, weeks_only=[f"{sunday:%Y-%m-%d}"]):
             return
-        self.store.log_event(start, end, 'workday')
+        self.store.log_event(start, end, 'workday', analysis.table_text(analysis.by_project(week)[['Hours']]))
         self.ui.say(self.m("workday_week_done", period=label))
 
     def _fill(self, pipe, csv_path, weeks_only=None) -> bool:
@@ -702,15 +726,19 @@ class Agent:
                       workflows.findings_report(findings))
         period = f"{start:%Y-%m-%d} → {end:%Y-%m-%d}"
         # Copiar a OneDrive = enviar a la base de N4W: confirmación explícita aparte
-        send = lambda rows, local: self.ui.confirm_send(
-            self.m("n4w_send_title", period=period), n4w.n4w_summary(rows),
-            self.m("n4w_send_warning"), self.m("n4w_send_ok"), self.m("n4w_send_cancel"))
+        sent = {}
+
+        def send(rows, local):
+            sent['summary'] = n4w.n4w_summary(rows)          # queda en el historial (auditoría)
+            return self.ui.confirm_send(
+                self.m("n4w_send_title", period=period), sent['summary'],
+                self.m("n4w_send_warning"), self.m("n4w_send_ok"), self.m("n4w_send_cancel"))
         try:
             pipe.submit_n4w(findings['path'], start, end, confirm=send)
         except Cancelled as e:
             self.ui.say(self.m("n4w_not_sent", path=e.args[0] if e.args else ""))
             return
-        self.store.log_event(start, end, 'n4w')
+        self.store.log_event(start, end, 'n4w', sent.get('summary', ''))
         self.ui.say(self.m("n4w_done", period=period))
 
     def do_my_projects(self, intent):
@@ -816,6 +844,177 @@ class Agent:
             return
         self.ui.say(self.m("categories_synced", cats=self._create_categories(mine)))
 
+    # ── ESTADO, CIERRE Y CORRECCIONES ────────────────────────
+    def _status_period(self, intent) -> tuple:
+        """Periodo pedido → el leído en la sesión → el mes del último leído → el mes pasado."""
+        if intent.month or (intent.start_date and intent.end_date):
+            return self._period(intent)[:2]
+        if self.loaded:
+            return self.loaded.start, self.loaded.end
+        last = self.store.last_read()
+        month = datetime.strptime(last['start'], '%Y-%m-%d') if last else self._last_month()
+        return timesheet.month_bounds(month.year, month.month)
+
+    @staticmethod
+    def _covered(ev: pd.DataFrame, steps, start, end) -> Optional[str]:
+        """Fecha del último evento de `steps` que cubre [start, end] completo (None si ninguno)."""
+        s, e = f"{start:%Y-%m-%d}", f"{end:%Y-%m-%d}"
+        hit = ev[ev['step'].isin(steps) & (ev['period_start'] <= s) & (ev['period_end'] >= e)]
+        return hit['at'].max()[:16].replace('T', ' ') if len(hit) else None
+
+    def _steps_status(self, start, end) -> tuple:
+        """
+        Estado de cada paso del periodo según el historial de eventos.
+        Returns: (líneas de la tarjeta, frases de lo pendiente en orden)
+        """
+        ev = self.store.events(start, end)
+        lines, todo = [], []
+        read = self._covered(ev, ('read', 'history'), start, end)
+        lines.append(f"① Read      {'✓ ' + read if read else '○ not read'}")
+        if not read:
+            todo.append(self.p("read", start))
+
+        L = self.loaded if self.loaded and (self.loaded.start, self.loaded.end) == (start, end) else None
+        prorated = self._covered(ev, ('prorate',), start, end)
+        if prorated and (not L or L.prorated_path):
+            lines.append(f"② Prorate   ✓ {prorated}")
+        elif L and L.virtual:
+            lines.append(f"② Prorate   ● pending: {', '.join(L.virtual)}")
+            todo.append(self.p("prorate", start))
+        elif L:
+            lines.append("② Prorate   – not needed")
+
+        # Workday: semanas domingo–sábado recortadas al periodo
+        weeks, sunday = [], start - timedelta(days=(start.weekday() + 1) % 7)
+        while sunday <= end:
+            weeks.append((max(sunday, start), min(sunday + timedelta(days=6), end)))
+            sunday += timedelta(days=7)
+        fmt = lambda w: f"{w[0]:%m-%d}→{w[1]:%m-%d}"  # noqa: E731
+        missing = [w for w in weeks if not self._covered(ev, ('workday',), *w)]
+        lines.append(f"③ Workday   {'✓' if not missing else '●'} {len(weeks) - len(missing)}/{len(weeks)} weeks"
+                     + (f" — pending: {', '.join(map(fmt, missing))}" if missing else ""))
+        if missing:
+            todo.append(self.p("workday", start))
+
+        # N4W: semanas lunes–domingo que tocan el periodo
+        n4w_weeks = timesheet.weeks_touching(start, end)
+        missing = [w for w in n4w_weeks if not self._covered(ev, ('n4w',), *w)]
+        lines.append(f"④ N4W       {'✓' if not missing else '●'} {len(n4w_weeks) - len(missing)}/{len(n4w_weeks)} weeks"
+                     + (f" — pending: {', '.join(map(fmt, missing))}" if missing else ""))
+        if missing:
+            todo.append(self.p("n4w", start))
+
+        sent = ev[ev['step'].isin(['workday', 'n4w'])]
+        if len(sent):
+            lines += ["", "Sent / saved:"]
+            for r in sent.to_dict('records'):
+                lines.append(f"  {r['at'][:16].replace('T', ' ')}  {'Workday' if r['step'] == 'workday' else 'N4W'}"
+                             f"  {r['period_start']} → {r['period_end']}")
+                lines += [f"      {x}" for x in (r['detail'] or '').splitlines()]
+        return lines, todo
+
+    def do_status(self, intent):
+        """¿Qué me falta? / ¿Ya envié N4W…? / ¿Qué envié en agosto? — desde el historial de eventos."""
+        start, end = self._status_period(intent)
+        label = period_label(start, end)
+        lines, todo = self._steps_status(start, end)
+        self.ui.show(f"Status {label}", "\n".join(lines))
+        if todo:
+            self.ui.say(self.m("status_next", period=label, n=len(todo), phrase=todo[0]))
+        else:
+            self.ui.say(self.m("status_done", period=label, phrase=self.p("compare", start)))
+
+    def do_close_check(self, intent):
+        """¿Estoy listo para cerrar el mes? Días incompletos, reuniones sin categoría, bloqueos y pasos."""
+        start, end = self._status_period(intent)
+        label = period_label(start, end)
+        df = self.store.hours(start, end)
+        if df.empty:
+            raise NeedInfo(self.m("read_first", phrase=self.p("read", start)))
+        self._ensure_global()
+        h, checks = analysis.h, []
+
+        short = analysis.short_days(df, start, end, config.EXPECTED_DAILY_HOURS)
+        days = ", ".join(f"{d[5:]} ({h(v)} h)" for d, v in short[:10]) + (" …" if len(short) > 10 else "")
+        checks.append((not short, f"Days under {h(config.EXPECTED_DAILY_HOURS)} h: {days or 'none'}"))
+        try:
+            groups = categorize.uncategorized_groups(self._pipeline().calendar_entries(start, end))
+            n, hours = sum(g['n'] for g in groups), sum(g['hours'] for g in groups)
+            checks.append((not groups, f"Meetings without category: {n} ({h(hours)} h)"
+                           + (f" → “{self.p('categorize', start)}”" if groups else "")))
+        except Exception as e:
+            self.ui.log(f"⚠ Outlook not read: {e}")
+            checks.append((False, "Meetings without category: could not read Outlook"))
+        blocked = analysis.invalid_hours(df, self.status)
+        checks.append((not blocked, "Hours on closed / not opened projects: "
+                       + (", ".join(i['code'] for i in blocked) or "none")))
+
+        steps, _ = self._steps_status(start, end)
+        lines = [("✓ " if ok else "⚠ ") + text for ok, text in checks] + ["", *steps]
+        self.ui.show(f"Close check {label}", "\n".join(lines))
+        issues = sum(not ok for ok, _ in checks)
+        self.ui.say(self.m("close_issues", period=label, n=issues) if issues
+                    else self.m("close_ready", period=label))
+
+    def do_edit_hours(self, intent):
+        """Corrige las horas de un proyecto en un día del periodo leído (solo el archivo para Workday)."""
+        loaded = self._require_loaded()
+        if not intent.project or not intent.start_date or intent.hours is None:
+            raise NeedInfo(self.m("need_edit", phrase=self.p("edit")))
+        code, day, new = intent.project, intent.start_date, float(intent.hours)
+        if loaded.prorated_path and code in loaded.virtual:
+            raise NeedInfo(self.m("edit_virtual", code=code))
+        path = loaded.prorated_path or loaded.path
+        ts = pd.read_csv(path)
+        col = next((c for c in get_date_columns(ts) if str(c)[:10] == day), None)
+        if col is None:
+            raise NeedInfo(self.m("edit_out_of_period", day=day, period=loaded.label))
+
+        match = ts.index[ts['Code'].astype(str).str.upper() == code]
+        if len(match):
+            idx = match[0]
+        else:                                           # proyecto sin horas en el periodo: nueva fila
+            cat = self._pipeline().catalog().drop_duplicates('Code').set_index('Code')
+            if code not in cat.index:
+                raise NeedInfo(self.m("codes_checked", details=self.m("frag_missing", code=code)))
+            idx = len(ts)
+            ts.loc[idx] = 0.0
+            ts.loc[idx, 'Code'] = code
+            for c in ('Task Name', 'Grant ID'):
+                if c in ts.columns:
+                    ts.loc[idx, c] = cat.loc[code, c]
+        h = analysis.h
+        old = float(ts.loc[idx, col])
+        before = float(ts[col].sum())
+        after = before - old + new
+        weekday = datetime.strptime(day, '%Y-%m-%d').strftime('%a')
+        self._pipeline()._approve(
+            f"Change {code} on {day}?",
+            f"{code}   {day} ({weekday}):  {h(old)} h → {h(new)} h\n"
+            f"Day total:  {h(before)} h → {h(after)} h\n\n"
+            f"Only {os.path.basename(path)} (the file for Workday) changes. Outlook is not modified.")
+        ts.loc[idx, col] = new
+        ts.to_csv(path, index=False)
+        self.store.save(ts, 'prorated' if loaded.prorated_path else 'outlook', loaded.start, loaded.end)
+        self.store.log_event(loaded.start, loaded.end, 'edit', f"{code} {day}: {h(old)} → {h(new)} h")
+        self.ui.say(self.m("edit_done", code=code, day=day, old=h(old), new=h(new), total=h(after)))
+        d = datetime.strptime(day, '%Y-%m-%d')
+        if self._covered(self.store.events(d, d), ('workday',), d, d):
+            self.ui.say(self.m("edit_workday_again"))
+
+    def do_explain_prorate(self, intent):
+        """¿Por qué prorrateaste así? — antes/después y la regla aplicada a cada proyecto."""
+        loaded = self._require_loaded(intent.month)
+        if not loaded.virtual:
+            self.ui.say(self.m("no_prorate_needed", period=loaded.label))
+            return
+        if not loaded.prorated_path:
+            raise NeedInfo(self.m("no_prorate_yet", period=loaded.label, phrase=self.p("prorate", loaded.start)))
+        before, after = pd.read_csv(loaded.path), pd.read_csv(loaded.prorated_path)
+        self.ui.show(f"Prorate {loaded.label} — how it was split",
+                     analysis.prorate_comparison(before, after, loaded.virtual) + "\n\n"
+                     + analysis.prorate_explanation(before, after, loaded.virtual))
+
     # ── ANÁLISIS ─────────────────────────────────────────────
     def _chart(self, spec: Optional[dict]):
         """Las gráficas acompañan al texto: si fallan, el análisis igual se muestra."""
@@ -832,11 +1031,55 @@ class Agent:
         self._chart(charts.daily_chart(df, start, end, config.EXPECTED_DAILY_HOURS, f"Hours per day {label}"))
 
     def do_hours_summary(self, intent):
+        if intent.project or self._short_range(intent):
+            self._quick_hours(intent)                       # pregunta puntual → una frase
+            return
         start, end = self._analysis_period(intent)
         df = self._history(start, end)
         self.ui.show(f"Summary {period_label(start, end)}",
                      analysis.balance_text(df, start, end, config.EXPECTED_DAILY_HOURS))
         self._period_charts(df, start, end)
+
+    @staticmethod
+    def _short_range(intent) -> bool:
+        if not (intent.start_date and intent.end_date):
+            return False
+        days = datetime.strptime(intent.end_date, '%Y-%m-%d') - datetime.strptime(intent.start_date, '%Y-%m-%d')
+        return days.days < 7
+
+    def _quick_hours(self, intent):
+        """
+        "¿Cuántas horas llevo esta semana / en X en septiembre?". Un periodo ya leído
+        y cerrado sale del historial; uno en curso se lee de Outlook (hasta hoy, sin guardar).
+        """
+        start, end = self._analysis_period(intent)
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        src = ""
+        if end < today and self.store.was_read(start, end):
+            df = self.store.hours(start, end)
+        else:
+            end = max(start, min(end, today))
+            self._ensure_global()
+            try:
+                df = analysis.to_long(self._pipeline().build_timesheet(start, end, save_files=False)['timesheet'])
+            except ValueError:                              # sin reuniones en el periodo
+                df = pd.DataFrame(columns=analysis.LONG_COLUMNS)
+            src = self.m("from_outlook")
+        label, h = period_label(start, end), analysis.h
+        table = analysis.by_project(df)
+        total = float(table['Hours'].sum())
+        if intent.project:
+            code = intent.project
+            if code not in table.index:
+                self.ui.say(self.m("quick_project_none", code=code, period=label, src=src))
+                return
+            self.ui.say(self.m("quick_project", code=code, hours=h(table.loc[code, 'Hours']), period=label,
+                               pct=h(table.loc[code, '%']), total=h(total), src=src))
+            return
+        days = analysis.working_days(start, end)
+        top = ", ".join(f"{c} {h(r['Hours'])} h" for c, r in table.head(3).iterrows()) or "-"
+        self.ui.say(self.m("quick_total", period=label, total=h(total), days=days, src=src, top=top,
+                           expected=h(days * config.EXPECTED_DAILY_HOURS)))
 
     def do_show_chart(self, intent):
         """Gráfica pedida: de un proyecto (tendencia), de un periodo (distribución y días) o de varios meses."""

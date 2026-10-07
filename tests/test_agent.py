@@ -122,6 +122,10 @@ class FakePipe:
     def virtual_projects(self, csv_path):
         return self.virtual
 
+    def catalog(self):
+        return pd.DataFrame({'Code': list(self.status), 'Task Name': ['T'] * len(self.status),
+                             'Grant ID': ['G'] * len(self.status)})
+
     def prorate(self, csv_path, start, end):
         df = pd.read_csv(csv_path)
         cols = [c for c in df.columns if c[:4].isdigit()]
@@ -600,3 +604,114 @@ def test_workday_save_needs_red_confirmation(env):
     ui.send_ok = True
     send("fill_workday", month="2026-09", language="es")
     assert pipe.filled
+
+
+# ── estado, cierre, correcciones y preguntas rápidas ────────
+
+def test_status_tracks_steps_and_what_was_sent(env):
+    agent, ui, pipe, send = env
+    pipe.virtual = []
+    assert "“read my hours for" in send("status", month="2026-09")
+    assert "○ not read" in ui.cards[-1][1]
+
+    send("read_hours", month="2026-09")
+    agent.handle("skip")
+    assert "“fill Workday for September" in send("status")          # sin periodo: el leído
+    title, card = ui.cards[-1]
+    assert title == "Status 2026-09" and "③ Workday   ● 0/5 weeks" in card
+
+    send("fill_workday")
+    send("submit_n4w", start_date="2026-09-07", end_date="2026-09-27")
+    send("status", month="2026-09")
+    card = ui.cards[-1][1]
+    assert "③ Workday   ✓ 5/5 weeks" in card and "④ N4W       ● 3/5 weeks" in card
+    assert "Sent / saved:" in card and "N4W  2026-09-07 → 2026-09-27" in card
+    assert "TOTAL" in card                                           # lo enviado queda guardado
+
+    agent.store.log_event(datetime(2026, 8, 31), datetime(2026, 9, 6), 'n4w')
+    agent.store.log_event(datetime(2026, 9, 28), datetime(2026, 10, 4), 'n4w')
+    assert send("status", month="2026-09").startswith("✓ 2026-09: everything is done")
+
+
+def test_close_check_flags_short_days(env):
+    agent, ui, pipe, send = env
+    pipe.virtual = []
+    assert send("close_check", month="2026-09").startswith("First read")
+    send("read_hours", month="2026-09")
+    agent.handle("skip")
+    assert send("close_check").startswith("✓ 2026-09 looks ready to close")
+    send("edit_hours", project="P100", start_date="2026-09-08", hours=4)
+    assert send("close_check").startswith("2026-09: 1 thing(s) to review")
+    assert "⚠ Days under 8 h: 09-08 (6 h)" in ui.cards[-1][1]
+
+
+def test_edit_hours_changes_only_the_workday_file(env):
+    agent, ui, pipe, send = env
+    pipe.virtual = []
+    assert send("edit_hours", project="P100", start_date="2026-09-08", hours=4).startswith("First read")
+    send("read_hours", month="2026-09")
+    agent.handle("skip")
+    assert "Tell me the project" in send("edit_hours", project="P100")
+    assert "not in the period" in send("edit_hours", project="P100", start_date="2026-10-01", hours=4)
+
+    msg = send("edit_hours", project="P100", start_date="2026-09-08", hours=4)
+    assert "6 h → 4 h" in msg and "day total 6 h" in msg and "Outlook stays as is" in msg
+    assert pipe.approved[-1] == "Change P100 on 2026-09-08?"
+    df = agent.store.hours(datetime(2026, 9, 8), datetime(2026, 9, 8))
+    assert df.set_index('code')['hours'].to_dict() == {'P100': 4.0, 'VIRT1': 2.0}
+
+    send("edit_hours", project="P300", start_date="2026-09-08", hours=2)   # proyecto sin fila: se agrega
+    ts = pd.read_csv(agent.loaded.path).set_index('Code')
+    assert ts.loc['P300', '2026-09-08 00:00:00'] == 2.0 and ts.loc['P300', 'Task Name'] == 'T'
+
+
+def test_edit_after_workday_says_to_fill_again(env):
+    agent, ui, pipe, send = env
+    pipe.virtual = []
+    send("read_hours", month="2026-09")
+    agent.handle("skip")
+    send("fill_workday")
+    assert "fill that week again" in send("edit_hours", project="P100", start_date="2026-09-08", hours=4)
+
+
+def test_explain_prorate(env):
+    agent, ui, pipe, send = env
+    send("read_hours", month="2026-09")
+    agent.handle("skip")
+    assert "not been prorated yet" in send("explain_prorate")
+    send("prorate")
+    send("explain_prorate")
+    title, card = ui.cards[-1]
+    assert title.startswith("Prorate 2026-09") and "Rule: the 44 h of VIRT1" in card
+    assert "P100" in card and "→ +44 h" in card
+
+
+def test_quick_hours_answers_in_one_sentence(env):
+    agent, ui, pipe, send = env
+    pipe.virtual = []
+    send("read_hours", month="2026-09")
+    agent.handle("skip")
+    n = len(ui.cards)
+    msg = send("hours_summary", project="P100", month="2026-09")
+    assert msg == "P100: 132 h in 2026-09 (75% of your 176 h)."
+    assert send("hours_summary", project="P300", month="2026-09") == "P300 has no hours in 2026-09."
+    msg = send("hours_summary", start_date="2026-09-07", end_date="2026-09-13")
+    assert msg.startswith("2026-09-07 → 2026-09-13: 40 h of 40 h expected (5 working days)")
+    assert "Most: P100 30 h, VIRT1 10 h" in msg and "Outlook" not in msg
+    assert len(ui.cards) == n                                    # sin tarjetas ni gráficas
+    msg = send("hours_summary", start_date="2026-08-03", end_date="2026-08-09")   # no leído → Outlook
+    assert "read from Outlook just now" in msg
+    assert not agent.store.hours(datetime(2026, 8, 3), datetime(2026, 8, 9)).shape[0]   # sin guardar
+
+
+def test_truncated_intent_json_keeps_fields_before_reply():
+    raw = '{"action": "my_projects", "month": null, "language": "es", "reply": "Tus proyectos: OF01, OF'
+    assert llm._loads(raw) == {"action": "my_projects", "month": None, "language": "es"}
+
+
+def test_greeting_shows_status_without_llm(env, monkeypatch):
+    agent, ui, pipe, send = env
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h: pytest.fail("greeting must not call the LLM"))
+    agent.handle("¡Hola!")
+    assert agent.lang == "es" and "¡Hola! Así vas:" in ui.said
+    assert ui.cards[-1][0].startswith("Status ") and "lee mis horas de" in ui.said[-1]

@@ -7,7 +7,7 @@
 # ============================================================
 import sys
 import time
-from datetime import date
+from datetime import date, timedelta
 
 from agent import llm
 
@@ -51,6 +51,26 @@ CASES = [
     # submit_n4w
     ("envía N4W de septiembre", "submit_n4w", {"month": last(9)}),
     ("submit my hours to N4W facility for last month", "submit_n4w", {"month": ym(-1)}),
+    # status / close_check / edit_hours / explain_prorate
+    ("¿qué me falta?", "status", {}),
+    ("what's pending for September?", "status", {"month": last(9)}),
+    ("¿ya envié N4W de septiembre?", "status", {"month": last(9)}),
+    ("¿qué envié en agosto?", "status", {"month": last(8)}),
+    ("¿estoy listo para cerrar septiembre?", "close_check", {"month": last(9)}),
+    ("am I ready to close the month?", "close_check", {}),
+    ("pon 4 horas a P100 el 8 de septiembre de 2026", "edit_hours",
+     {"project": "P100", "start_date": "2026-09-08", "hours": 4}),
+    ("change OF0104 to 2 h on 2026-09-15", "edit_hours",
+     {"project": "OF0104", "start_date": "2026-09-15", "hours": 2}),
+    ("¿por qué prorrateaste así?", "explain_prorate", {}),
+    ("how did you split the prorated hours?", "explain_prorate", {}),
+    # hours_summary puntual
+    ("¿cuántas horas le metí a OF0104 en septiembre?", "hours_summary", {"project": "OF0104", "month": last(9)}),
+    ("¿cuántas horas llevo hoy?", "hours_summary",
+     {"start_date": TODAY.isoformat(), "end_date": TODAY.isoformat()}),
+    ("how many hours do I have this week?", "hours_summary",
+     {"start_date": (TODAY - timedelta(days=TODAY.weekday())).isoformat(),
+      "end_date": (TODAY + timedelta(days=6 - TODAY.weekday())).isoformat()}),
     # add_project
     ("estoy trabajando en un proyecto nuevo, el OF0123, crea la categoría", "add_project", {"project": "OF0123"}),
     ("add project N4W0456", "add_project", {"project": "N4W0456"}),

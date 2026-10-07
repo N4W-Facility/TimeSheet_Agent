@@ -78,6 +78,19 @@ def balance_text(df: pd.DataFrame, start: datetime, end: datetime,
     return "\n".join(lines)
 
 
+def short_days(df: pd.DataFrame, start: datetime, end: datetime,
+               daily: float = 8.0) -> List[tuple]:
+    """Días lunes–viernes del rango con menos de `daily` horas: [('YYYY-MM-DD', horas)]."""
+    totals = df.groupby('day')['hours'].sum() if not df.empty else pd.Series(dtype=float)
+    out = []
+    for d in pd.bdate_range(start, end):
+        day = d.strftime('%Y-%m-%d')
+        hours = float(totals.get(day, 0.0))
+        if hours < daily - 0.001:
+            out.append((day, hours))
+    return out
+
+
 # ── Mes a mes ────────────────────────────────────────────────
 
 def monthly(df: pd.DataFrame) -> pd.DataFrame:
@@ -386,3 +399,24 @@ def prorate_comparison(before: pd.DataFrame, after: pd.DataFrame, virtual: List[
         f"Redistributed: {h(moved)} h from {', '.join(virtual) or '-'} "
         f"to {len(receivers)} project(s)",
     ])
+
+
+def prorate_explanation(before: pd.DataFrame, after: pd.DataFrame, virtual: List[str]) -> str:
+    """Por qué cada proyecto recibió lo que recibió: reparto proporcional a sus propias horas."""
+    b, a = by_project(to_long(before)), by_project(to_long(after))
+    moved = float(b['Hours'].reindex(virtual).fillna(0).sum())
+    delta = a['Hours'].sub(b['Hours'], fill_value=0.0)
+    receivers = [c for c in delta.index if c not in virtual and delta[c] > 0.001]
+    base = float(b['Hours'].reindex(receivers).fillna(0).sum())
+    lines = [f"Rule: the {h(moved)} h of {', '.join(virtual) or '-'} are split among the projects "
+             "you selected, in proportion to their own hours in the period "
+             "(rounded to 0.25 h per day; the daily total is kept).", ""]
+    for c in sorted(receivers, key=lambda c: -delta[c]):
+        own = float(b['Hours'].get(c, 0.0))
+        share = own / base * 100 if base else 0.0
+        lines.append(f"{c:<10} own {h(own):>6} h = {h(round(share, 1)):>5}% of {h(base)} h  "
+                     f"→ +{h(delta[c])} h")
+    kept = [c for c in b.index if c not in virtual and c not in receivers and not is_special_code(c)]
+    if kept:
+        lines += ["", f"Not selected (unchanged): {', '.join(kept)}"]
+    return "\n".join(lines)

@@ -142,6 +142,79 @@ MESSAGES = {
         "es": "✓ N4W Facility enviado ({period}).",
         "pt": "✓ N4W Facility enviado ({period}).",
     },
+    "hello": {
+        "en": "Hi! Here is where you are:",
+        "es": "¡Hola! Así vas:",
+        "pt": "Olá! Veja onde você está:",
+    },
+    "status_next": {
+        "en": "{period}: {n} step(s) pending (see the card). Next: “{phrase}”.",
+        "es": "{period}: {n} paso(s) pendiente(s) (ver la tarjeta). Siguiente: “{phrase}”.",
+        "pt": "{period}: {n} passo(s) pendente(s) (veja o cartão). Próximo: “{phrase}”.",
+    },
+    "status_done": {
+        "en": "✓ {period}: everything is done (Workday and N4W). You can ask “{phrase}”.",
+        "es": "✓ {period}: todo está hecho (Workday y N4W). Puedes preguntar “{phrase}”.",
+        "pt": "✓ {period}: tudo pronto (Workday e N4W). Você pode perguntar “{phrase}”.",
+    },
+    "close_ready": {
+        "en": "✓ {period} looks ready to close: full days, meetings categorized, no blocked projects.",
+        "es": "✓ {period} se ve listo para cerrar: días completos, reuniones categorizadas, sin proyectos bloqueados.",
+        "pt": "✓ {period} parece pronto para fechar: dias completos, reuniões categorizadas, sem projetos bloqueados.",
+    },
+    "close_issues": {
+        "en": "{period}: {n} thing(s) to review before closing (see the card).",
+        "es": "{period}: {n} cosa(s) por revisar antes de cerrar (ver la tarjeta).",
+        "pt": "{period}: {n} item(ns) para revisar antes de fechar (veja o cartão).",
+    },
+    "quick_project": {
+        "en": "{code}: {hours} h in {period} ({pct}% of your {total} h){src}.",
+        "es": "{code}: {hours} h en {period} ({pct}% de tus {total} h){src}.",
+        "pt": "{code}: {hours} h em {period} ({pct}% das suas {total} h){src}.",
+    },
+    "quick_project_none": {
+        "en": "{code} has no hours in {period}{src}.",
+        "es": "{code} no tiene horas en {period}{src}.",
+        "pt": "{code} não tem horas em {period}{src}.",
+    },
+    "quick_total": {
+        "en": "{period}: {total} h of {expected} h expected ({days} working days){src}. Most: {top}.",
+        "es": "{period}: {total} h de {expected} h esperadas ({days} días laborables){src}. Lo principal: {top}.",
+        "pt": "{period}: {total} h de {expected} h esperadas ({days} dias úteis){src}. Principais: {top}.",
+    },
+    "from_outlook": {
+        "en": " — read from Outlook just now", "es": " — leído de Outlook ahora", "pt": " — lido do Outlook agora",
+    },
+    "need_edit": {
+        "en": "Tell me the project, the day and the new hours, e.g. “{phrase}”.",
+        "es": "Dime el proyecto, el día y las horas nuevas, p. ej. “{phrase}”.",
+        "pt": "Diga o projeto, o dia e as novas horas, ex.: “{phrase}”.",
+    },
+    "edit_out_of_period": {
+        "en": "{day} is not in the period read ({period}).",
+        "es": "{day} no está en el periodo leído ({period}).",
+        "pt": "{day} não está no período lido ({period}).",
+    },
+    "edit_virtual": {
+        "en": "{code} was already prorated (its hours went to other projects). Edit another project or read the month again.",
+        "es": "{code} ya se prorrateó (sus horas pasaron a otros proyectos). Edita otro proyecto o vuelve a leer el mes.",
+        "pt": "{code} já foi rateado (suas horas foram para outros projetos). Edite outro projeto ou leia o mês de novo.",
+    },
+    "edit_done": {
+        "en": "✓ {code} on {day}: {old} h → {new} h (day total {total} h). Only the file for Workday changed: Outlook stays as is, so reading again discards this edit and N4W uses Outlook.",
+        "es": "✓ {code} el {day}: {old} h → {new} h (total del día {total} h). Solo cambió el archivo para Workday: Outlook queda igual, así que volver a leer descarta este cambio y N4W usa Outlook.",
+        "pt": "✓ {code} em {day}: {old} h → {new} h (total do dia {total} h). Só mudou o arquivo do Workday: o Outlook fica igual, então ler de novo descarta esta edição e o N4W usa o Outlook.",
+    },
+    "edit_workday_again": {
+        "en": "Workday was already filled for this month: fill that week again to update it.",
+        "es": "Workday ya se llenó para este mes: vuelve a llenar esa semana para actualizarla.",
+        "pt": "O Workday já foi preenchido para este mês: preencha essa semana de novo para atualizá-la.",
+    },
+    "no_prorate_yet": {
+        "en": "{period} has not been prorated yet. Write “{phrase}”.",
+        "es": "{period} aún no se prorrateó. Escribe “{phrase}”.",
+        "pt": "{period} ainda não foi rateado. Escreva “{phrase}”.",
+    },
     "categories_synced": {
         "en": "✓ Outlook categories of your projects checked. {cats}",
         "es": "✓ Categorías de Outlook de tus proyectos revisadas. {cats}",

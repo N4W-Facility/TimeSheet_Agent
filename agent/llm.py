@@ -7,7 +7,7 @@
 import json
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import List, Optional
 
 import config
@@ -17,12 +17,14 @@ log = logging.getLogger(__name__)
 # Pasos (el usuario los pide uno a uno)
 STEPS = ["read_hours", "prorate", "fill_workday", "submit_n4w"]
 # "Mis proyectos" (la lista de códigos en los que trabaja el usuario)
+# Estado, control antes de cerrar y correcciones del periodo leído
+STATUS = ["status", "close_check", "edit_hours", "explain_prorate"]
 PROJECTS = ["my_projects", "add_project", "remove_project", "import_projects", "categorize_meetings"]
 # Análisis sobre el historial
 ANALYSIS = ["hours_summary", "compare_months", "project_stats", "set_target",
             "alerts", "load_history", "show_chart"]
 OTHER = ["update_database", "sync_categories", "help", "other"]
-ACTIONS = STEPS + PROJECTS + ANALYSIS + OTHER
+ACTIONS = STEPS + STATUS + PROJECTS + ANALYSIS + OTHER
 
 _str = {"type": ["string", "null"]}
 _num = {"type": ["number", "null"]}
@@ -38,26 +40,33 @@ INTENT_SCHEMA = {
         "project": _str,
         "target_pct": _num,
         "target_hours": _num,
+        "hours": _num,
         "months_back": {"type": ["integer", "null"]},
         "language": {"type": "string"},
         "reply": {"type": "string"},
     },
     "required": ["action", "month", "month2", "start_date", "end_date", "project",
-                 "target_pct", "target_hours", "months_back", "language", "reply"],
+                 "target_pct", "target_hours", "hours", "months_back", "language", "reply"],
 }
 
 SYSTEM_PROMPT = """You are the assistant of "TimeSheet Agent" (The Nature Conservancy).
 You ONLY help with the user's timesheet hours and the projects they charge time to.
-Today is {today} ({weekday}).
+Today is {today} ({weekday}). This week: {monday} to {sunday}. Last week: {last_monday} to {last_sunday}.
 
 Classify the user's message into a JSON intent. You never execute anything and never invent numbers.
 The user controls every step: one message = one action. Never combine steps.
+If a message only corrects a value of the previous user message (a month, a date or a project code), the action is the SAME as that previous message, with the new value.
 
 Steps:
 - read_hours: read the hours from the Outlook calendar for a period. Always the first step ("read/load my hours for October").
 - prorate: prorate (redistribute) the hours of the period already read.
 - fill_workday: fill Workday with the month already read. For ONE week of it ("fill Workday the week of October 4") set start_date = that day.
 - submit_n4w: submit hours to N4W Facility (Monday-Sunday weeks).
+Status and corrections:
+- status: where am I / what is pending / did I already fill Workday or submit N4W for a period, when, and what was sent ("what's left?", "did I submit N4W last week?", "what did I send in August?"). Set month/dates only if the user names a period.
+- close_check: am I ready to close a month / check everything before submitting ("am I ready to close September?").
+- edit_hours: change the hours of ONE project on ONE day of the period already read ("put 4 h on P100 on Tuesday"). Set project, start_date = that day, hours = the new hours.
+- explain_prorate: why / how the hours were prorated ("why did you prorate like that?").
 My projects (the list of project codes the user works on):
 - my_projects: show/review the projects I work on ("which are my projects?").
 - add_project: the user works on new project(s) ("I'm also working on FS3602A"), even if they also ask to create its Outlook category. Set "project" (first code).
@@ -65,7 +74,7 @@ My projects (the list of project codes the user works on):
 - import_projects: import my project codes from an Excel file ("import my projects from Excel").
 - categorize_meetings: help me categorize the Outlook meetings that have NO category ("help me categorize my meetings of October"). Set month/dates if given.
 Analysis of saved history:
-- hours_summary: summary/balance of hours by project for a month or dates.
+- hours_summary: summary/balance of hours by project for a month or dates, or a quick question "how many hours this week / today / on OF0104 in September?" (set project if one is named).
 - compare_months: compare "month" with "month2" (month2 null = the previous month). "Did I charge more than in August?"
 - project_stats: averages and history of "project", or of all projects if no code.
 - set_target: the user states the dedication a project SHOULD have: target_pct (% of the month) and/or target_hours (hours per month).
@@ -80,10 +89,11 @@ Other:
 
 Fields (null when not given):
 - month, month2: "YYYY-MM". Resolve relative dates with today ("this month", "last month"; a month name = its most recent occurrence not in the future).
-- start_date, end_date: "YYYY-MM-DD", only when the user gives explicit days.
+- start_date, end_date: "YYYY-MM-DD", only when the user gives days: explicit dates or relative days ("today" = start and end today; "this week" / "last week" = its Monday and Sunday).
+- hours: only for edit_hours (the new number of hours for that day).
 - project: project code as written, uppercase (e.g. "OF0104").
 - language: ISO 639-1 code of the user's message (es, en, pt, fr...).
-- reply: ONE short sentence IN THE USER'S LANGUAGE saying what you will do (with the period or project). Never numbers or results: the app shows them. For help: list the steps (read hours → prorate → fill Workday / submit N4W), managing my projects and the analysis questions. For other: say you only help with timesheet hours and projects."""
+- reply: ONE short sentence IN THE USER'S LANGUAGE saying what you will do (with the period or project). Never numbers, project codes or results: the app shows them. For help: list the steps (read hours → prorate → fill Workday / submit N4W), what's pending / ready to close, managing my projects and the analysis questions. For other: say you only help with timesheet hours and projects."""
 
 
 @dataclass
@@ -98,6 +108,7 @@ class Intent:
     project: Optional[str] = None
     target_pct: Optional[float] = None
     target_hours: Optional[float] = None
+    hours: Optional[float] = None
     months_back: Optional[int] = None
 
 
@@ -205,15 +216,34 @@ def _clean_code(value) -> Optional[str]:
     return str(value).strip().upper() if value else None
 
 
+def _loads(raw: str) -> dict:
+    """
+    JSON del modelo. Si se cortó (el modelo a veces se enrolla en "reply" hasta el
+    tope de salida), se recuperan los campos anteriores: "reply" va siempre al final.
+    """
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        cut = raw.rfind('"reply"')
+        if cut < 0:
+            raise
+        log.warning("intent JSON truncated; reply dropped")
+        return json.loads(raw[:cut].rstrip().rstrip(',') + "}")
+
+
 def parse_intent(text: str, history: List[dict], model: str = None) -> Intent:
     """history: [{'role': 'user'|'assistant', 'content': str}] (últimos turnos)."""
     today = date.today()
-    system = [{"role": "system",
-               "content": SYSTEM_PROMPT.format(today=today.isoformat(), weekday=today.strftime('%A'))}]
+    monday = today - timedelta(days=today.weekday())
+    system = [{"role": "system", "content": SYSTEM_PROMPT.format(
+        today=today.isoformat(), weekday=today.strftime('%A'),
+        monday=monday.isoformat(), sunday=(monday + timedelta(days=6)).isoformat(),
+        last_monday=(monday - timedelta(days=7)).isoformat(),
+        last_sunday=(monday - timedelta(days=1)).isoformat())}]
     new = [{"role": "user", "content": text}]
     messages = system + fit_history(system, history, new) + new
 
-    data = json.loads(_chat(messages, fmt=INTENT_SCHEMA, model=model))
+    data = _loads(_chat(messages, fmt=INTENT_SCHEMA, model=model))
     log.debug(f"intent: {data}")
     action = data.get("action") if data.get("action") in ACTIONS else "other"
     return Intent(
@@ -227,5 +257,6 @@ def parse_intent(text: str, history: List[dict], model: str = None) -> Intent:
         project=_clean_code(data.get("project")),
         target_pct=data.get("target_pct"),
         target_hours=data.get("target_hours"),
+        hours=data.get("hours"),
         months_back=data.get("months_back"),
     )
