@@ -50,6 +50,11 @@ MESSAGES = {
         "es": "Primero lee tus horas de Outlook. Escribe: “{phrase}”.",
         "pt": "Primeiro leia suas horas do Outlook. Escreva: “{phrase}”.",
     },
+    "reread_ask": {
+        "en": "I already read {period}. Read it again from Outlook? (yes / no: no shows what I saved)",
+        "es": "Ya leí {period}. ¿Lo vuelvo a leer de Outlook? (sí / no: con no te muestro lo guardado)",
+        "pt": "Já li {period}. Leio de novo do Outlook? (sim / não: com não mostro o que salvei)",
+    },
     "read_done": {
         "en": "✓ Hours read for {period}: {total} h in {n} projects. Review the balance above.",
         "es": "✓ Horas leídas de {period}: {total} h en {n} proyectos. Revisa el balance de arriba.",

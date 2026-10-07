@@ -99,6 +99,13 @@ CLEAR_RE = {
 PERIOD_RE = re.compile(r"\d|semana|week|\bmes\b|month|hoy|today|hoje|ayer|yesterday|ontem|pasad|anterior|last|passad"
                        r"|\b(" + "|".join(sorted({suggest._norm(m) for ms in suggest.MONTHS.values() for m in ms}))
                        + r")\b")
+# "Lee mis horas…" es siempre leer de Outlook (el modelo a veces lo toma por resumen o gráfica)
+READ_RE = re.compile(r"\b(lee|leer|leeme|leelas|leelo|relee|releer|read|reread|ler|leia|releia|reler)\b")
+# Pide releer a propósito: no se pregunta "¿lo vuelvo a leer?"
+AGAIN_RE = re.compile(r"\b(nuevamente|de nuevo|otra vez|vuelve a|volver a|relee|releer|again|reread"
+                      r"|novamente|de novo|outra vez|reler|releia)\b")
+YES_WORDS = {"si", "yes", "sim", "ok", "dale", "claro", "vale", "hazlo", "leelo", "leelas", "sure", "do it", "pode"}
+NO_WORDS = {"no", "nao", "nope", "no gracias", "no thanks", "nao obrigado"}
 TARGET_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(%|h|hs|hrs|hours|horas|horas/mes)?")
 
 
@@ -153,6 +160,7 @@ class Agent:
         self.status: dict = {}                      # código → estado en N4W_Task_Details
         self.pending_targets: List[dict] = []       # dedicaciones por preguntar
         self.awaiting_codes = False                 # se preguntó "¿en qué proyectos trabajas?"
+        self.pending_reread = None                  # (texto, intent) de "¿lo vuelvo a leer?"
         self.text = ""                              # último mensaje (para extraer códigos)
 
     # ── utilidades ───────────────────────────────────────────
@@ -250,6 +258,8 @@ class Agent:
             return
         if self.awaiting_codes and self._answer_codes(text):
             return
+        if self.pending_reread and self._answer_reread(text):
+            return
         self.text = text
         greeting = GREETINGS.get(suggest._norm(text).strip(" !.¡,"))
         if greeting:
@@ -268,6 +278,9 @@ class Agent:
             self.ui.say(self.m("llm_down", err=e))
             return
 
+        if (intent.action in ("hours_summary", "show_chart") and not intent.project
+                and READ_RE.search(suggest._norm(text))):
+            intent.action = "read_hours"
         self._set_lang(intent.language)
         self._remember("user", text)
         if intent.reply and intent.action != "help":
@@ -291,6 +304,12 @@ class Agent:
             self.ui.say(self.m("need_email"))
             return
 
+        if intent.action == "read_hours" and self._ask_reread(text, intent):
+            return
+        self._run(text, intent)
+
+    def _run(self, text: str, intent: llm.Intent):
+        """Ejecuta la acción; sus mensajes los redacta el modelo al final (_narrate)."""
         collect = _Collect(self.ui)
         ui, self.ui = self.ui, collect
         done = False
@@ -310,6 +329,40 @@ class Agent:
             self._narrate(text, collect)
         else:
             collect.flush()
+
+    def _ask_reread(self, text: str, intent: llm.Intent) -> bool:
+        """Periodo ya leído y el usuario no dijo "de nuevo" → pregunta antes de releer Outlook."""
+        if AGAIN_RE.search(suggest._norm(text)):
+            return False
+        try:
+            start, end = self._period(intent)[:2]
+        except NeedInfo:
+            return False
+        if not self.store.was_read(start, end):
+            return False
+        self.pending_reread = (text, intent)
+        msg = self.m("reread_ask", period=period_label(start, end))
+        self.ui.say(msg)
+        self._remember("assistant", msg)
+        return True
+
+    def _answer_reread(self, text: str) -> bool:
+        """"sí" → relee; "no" → muestra lo guardado. Otra cosa → pasa al LLM."""
+        original, intent = self.pending_reread
+        self.pending_reread = None
+        t = suggest._norm(text).strip().strip("¿?¡!.,").strip()
+        if t in YES_WORDS or AGAIN_RE.search(t):
+            self._remember("user", text)
+            self.text = original
+            self._run(original, intent)
+            return True
+        if t in NO_WORDS:
+            self._remember("user", text)
+            self.text = original
+            intent.action = "hours_summary"
+            self._run(original, intent)
+            return True
+        return False
 
     def _narrate(self, text: str, collect: "_Collect"):
         """Respuesta redactada por el modelo con lo que dijo la acción; si no, los mensajes fijos."""
@@ -411,6 +464,7 @@ class Agent:
         self.chat_history = []
         self.pending_targets = []
         self.awaiting_codes = False
+        self.pending_reread = None
         self.text = ""
         self.ui.clear()
         self.greet()

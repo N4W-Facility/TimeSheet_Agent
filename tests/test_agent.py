@@ -308,6 +308,7 @@ def test_workday_restores_month_after_reading_a_week(env):
     send("read_hours", month="2026-10")
     send("prorate")
     send("read_hours", start_date="2026-10-05", end_date="2026-10-11")
+    agent.handle("sí")                                  # la semana ya estaba leída en el mes
     assert not agent.loaded.is_month
 
     send("fill_workday", month="2026-10")
@@ -958,3 +959,32 @@ def test_narrate_rejects_invented_numbers(monkeypatch):
     assert llm.narrate("read september", facts, "en") is None
     monkeypatch.setattr(llm.config, "OLLAMA_NARRATE", False)
     assert llm.narrate("read september", facts, "en") is None
+
+
+def test_read_verb_is_always_a_read(env, monkeypatch):
+    agent, ui, pipe, send = env
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent("hours_summary", month="2026-09"))
+    agent.handle("lee mis horas de septiembre")
+    assert any(t.startswith("Hours") and "(Outlook)" in t for t, _ in ui.cards)
+
+
+def test_reread_asks_first(env, monkeypatch):
+    agent, ui, pipe, send = env
+    send("read_hours", month="2026-09")
+    n = len(ui.cards)
+    send("read_hours", month="2026-09")
+    assert "already read" in ui.said[-1] and len(ui.cards) == n        # pregunta, no relee
+    agent.handle("no")                                                  # muestra lo guardado
+    assert ui.cards[-1][0].startswith("Summary")
+    send("read_hours", month="2026-09")
+    agent.handle("sí")
+    assert any("(Outlook)" in t for t, _ in ui.cards[n:])
+
+
+def test_reread_on_purpose_does_not_ask(env, monkeypatch):
+    agent, ui, pipe, send = env
+    send("read_hours", month="2026-09")
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent("read_hours", month="2026-09"))
+    n = len(ui.cards)
+    agent.handle("lee de nuevo septiembre 2026-09")
+    assert agent.pending_reread is None and any("(Outlook)" in t for t, _ in ui.cards[n:])
