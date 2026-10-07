@@ -138,14 +138,13 @@ app/tests/            pytest suite        app/eval_intents.py   intent accuracy 
 - Development: run `app\TimeSheet_Agent.bat` from the repository. It never auto-updates; only the installed copy does.
 - Run the tests with the app's environment, from `app\`: `%LOCALAPPDATA%\TimeSheetAgent\mamba\envs\timesheet-agent\python.exe -m pytest tests`.
 - After changing the model prompt in `app/agent/llm.py`, run `eval_intents.py`. Small models are sensitive to prompt wording.
-- `CLAUDE.md` documents the architecture and the domain rules in detail.
 
 ### Publishing a new version
 
 1. Push your changes to `main`.
 2. On GitHub: *Releases → Draft a new release*, create a tag such as `v1.1`, add a short note and click *Publish release*.
 
-That is all. Everyone's app updates the next time they open it. The release ZIP holds only `install.bat`, `README.md` and `app\`. Tests, `eval_intents.py` and `CLAUDE.md` are left out through `export-ignore` in `.gitattributes`.
+That is all. Everyone's app updates the next time they open it. The release ZIP holds only `install.bat`, `README.md` and `app\`. Tests and `eval_intents.py` are left out through `export-ignore` in `.gitattributes`.
 
 The update downloads the release from the public GitHub URL, so **the repository must be public**. With a private repository, installs and updates fail. The app still opens, but stays on the version it has.
 

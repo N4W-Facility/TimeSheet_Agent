@@ -8,3 +8,5 @@ __pycache__/
 settings.json
 # Lanzador antiguo (referencia)
 TimeSheet_N4W_EXE.bat
+# Notas locales de desarrollo (no se publican)
+CLAUDE.md

@@ -5,6 +5,5 @@
 # Fuera del ZIP de los releases (el usuario solo ve install.bat, README.md y app\)
 .gitattributes export-ignore
 .gitignore export-ignore
-CLAUDE.md export-ignore
 app/tests export-ignore
 app/eval_intents.py export-ignore
