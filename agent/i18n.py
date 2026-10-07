@@ -91,14 +91,14 @@ MESSAGES = {
         "pt": "✓ Workday preenchido para {period}. Agora você pode escrever: “{a}” ou “{b}”.",
     },
     "workday_week_done": {
-        "en": "✓ Workday filled for the week {period}.",
-        "es": "✓ Workday llenado para la semana {period}.",
-        "pt": "✓ Workday preenchido para a semana {period}.",
+        "en": "✓ Workday filled for {period}.",
+        "es": "✓ Workday llenado para {period}.",
+        "pt": "✓ Workday preenchido para {period}.",
     },
     "workday_week_empty": {
-        "en": "There are no hours to fill in the week {period}.",
-        "es": "No hay horas para llenar en la semana {period}.",
-        "pt": "Não há horas para preencher na semana {period}.",
+        "en": "There are no hours to fill in {period}.",
+        "es": "No hay horas para llenar en {period}.",
+        "pt": "Não há horas para preencher em {period}.",
     },
     "workday_save_title": {
         "en": "Save this week in Workday?",

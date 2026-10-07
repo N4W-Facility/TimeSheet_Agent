@@ -49,6 +49,7 @@ CASES = [
     ("llena workday la semana del 4 de octubre de 2026", "fill_workday", {"start_date": "2026-10-04"}),
     ("fill Workday only for the week of September 14, 2026", "fill_workday", {"start_date": "2026-09-14"}),
     ("preencha o workday da semana de 21 de setembro de 2026", "fill_workday", {"start_date": "2026-09-21"}),
+    ("llena workday del 1 al 14 de junio de 2026", "fill_workday", {"start_date": "2026-06-01", "end_date": "2026-06-14"}),
     ("ingresa en workday solo la semana del 28/09/2026", "fill_workday", {"start_date": "2026-09-28"}),
     # submit_n4w
     ("envía N4W de septiembre", "submit_n4w", {"month": last(9)}),

@@ -95,6 +95,10 @@ CLEAR_RE = {
     "pt": re.compile(r"\b(apaga|apagar|limpa|limpar|reinicia|reiniciar) (o |a |esta |este )?(chat|conversa)\b"
                      r"|\b(novo chat|nova conversa)\b"),
 }
+# El mensaje nombra un periodo (sin tildes): si no, las fechas del modelo son inventadas
+PERIOD_RE = re.compile(r"\d|semana|week|\bmes\b|month|hoy|today|hoje|ayer|yesterday|ontem|pasad|anterior|last|passad"
+                       r"|\b(" + "|".join(sorted({suggest._norm(m) for ms in suggest.MONTHS.values() for m in ms}))
+                       + r")\b")
 TARGET_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(%|h|hs|hrs|hours|horas|horas/mes)?")
 
 
@@ -788,31 +792,40 @@ class Agent:
                                   phrase=self.p("read", start)))
 
     def do_fill_workday(self, intent):
-        # Cualquier periodo leído (días, semana, mes). Una semana concreta: start_date = un día de ella
-        sunday, overlaps = None, True
-        wanted = intent.month
-        if intent.start_date:
-            day = datetime.strptime(intent.start_date, '%Y-%m-%d')
+        # Cualquier periodo leído (días, semana, mes) o semanas concretas de él (start_date[, end_date])
+        wanted, first, last = intent.month, intent.start_date, intent.end_date
+        if not PERIOD_RE.search(suggest._norm(self.text)):
+            wanted = first = last = None            # "llena Workday" a secas: fechas inventadas → lo leído
+        sundays, overlaps = None, True
+        if first:
+            day = datetime.strptime(first, '%Y-%m-%d')
+            until = max(day, datetime.strptime(last, '%Y-%m-%d')) if last else day
             sunday = day - timedelta(days=(day.weekday() + 1) % 7)
+            sundays = []
+            while sunday <= until:
+                sundays.append(sunday)
+                sunday += timedelta(days=7)
             L = self.loaded
-            overlaps = bool(L and sunday <= L.end and sunday + timedelta(days=6) >= L.start)
+            overlaps = bool(L and sundays[0] <= L.end and sundays[-1] + timedelta(days=6) >= L.start)
             if not wanted and not overlaps:
                 wanted = f"{day:%Y-%m}"
         loaded = self._require_loaded(wanted)
-        # Pidió un mes (o una semana fuera de lo leído) y lo cargado es un rango: se retoma
+        # Pidió un mes (o semanas fuera de lo leído) y lo cargado es un rango: se retoma
         # ese mes si ya se había leído; si no, se usa el rango cargado
-        if not loaded.is_month and wanted and (sunday is None or not overlaps):
+        if not loaded.is_month and wanted and (sundays is None or not overlaps):
             if self._restore_month(datetime.strptime(wanted, '%Y-%m')):
                 loaded = self.loaded
         if loaded.virtual and not loaded.prorated_path:
             raise NeedInfo(self.m("must_prorate", codes=", ".join(loaded.virtual),
                                   phrase=self.p("prorate", loaded.start)))
+        if sundays and sundays[0] <= loaded.start and sundays[-1] + timedelta(days=6) >= loaded.end:
+            sundays = None                          # las semanas pedidas cubren todo lo leído
 
         csv_path = loaded.prorated_path or loaded.path
         df = analysis.to_long(pd.read_csv(csv_path))
         pipe = self._pipeline()
         source = "prorated" if loaded.prorated_path else "Outlook"
-        if sunday is None:
+        if sundays is None:
             self._guard_upload(df, loaded.start)
             pipe._approve(f"Fill Workday {loaded.label} with these hours ({source})?",
                           analysis.balance_text(df, loaded.start, loaded.end, config.EXPECTED_DAILY_HOURS))
@@ -824,17 +837,18 @@ class Agent:
             self.ui.say(self.m("workday_done", period=loaded.label, a=self.p("n4w", loaded.start),
                                b=self.p("compare", loaded.start)))
             return
-
-        # De la semana solo cuentan los días del periodo leído
-        start, end = max(sunday, loaded.start), min(sunday + timedelta(days=6), loaded.end)
+        # Semanas completas (Workday guarda por semana), solo con los días del periodo leído
+        start = max(sundays[0], loaded.start)
+        end = min(sundays[-1] + timedelta(days=6), loaded.end)
         label = f"{start:%Y-%m-%d} → {end:%Y-%m-%d}"
         week = df[(df['day'] >= f"{start:%Y-%m-%d}") & (df['day'] <= f"{end:%Y-%m-%d}")]
         if week.empty:
             raise NeedInfo(self.m("workday_week_empty", period=label))
         self._guard_upload(week, loaded.start)
-        pipe._approve(f"Fill Workday week {label} with these hours ({source})?",
+        what = "week" if len(sundays) == 1 else f"{len(sundays)} weeks"
+        pipe._approve(f"Fill Workday {what} {label} with these hours ({source})?",
                       analysis.balance_text(week, start, end, config.EXPECTED_DAILY_HOURS))
-        if not self._fill(pipe, csv_path, weeks_only=[f"{sunday:%Y-%m-%d}"]):
+        if not self._fill(pipe, csv_path, weeks_only=[f"{s:%Y-%m-%d}" for s in sundays]):
             return
         self.store.log_event(start, end, 'workday', analysis.table_text(analysis.by_project(week)[['Hours']]))
         self.ui.say(self.m("workday_week_done", period=label))

@@ -173,7 +173,8 @@ def env(tmp_path, monkeypatch):
 
     def send(action, **kw):
         monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent(action, **kw))
-        agent.handle("...")
+        # el mensaje nombra las fechas que el modelo extrae (sin fechas se usan las del periodo leído)
+        agent.handle(" ".join(["..."] + [str(kw[k]) for k in ("month", "start_date", "end_date") if kw.get(k)]))
         return ui.said[-1] if ui.said else ""
     return agent, ui, pipe, send
 
@@ -562,6 +563,28 @@ def test_workday_week_crossing_months_keeps_month_days(env):
     send("fill_workday", start_date="2026-09-29")                  # semana 27/09–03/10
     assert pipe.weeks_only == ["2026-09-27"]
     assert "2026-09-27 → 2026-09-30" in pipe.approved[-1]           # solo los días de septiembre
+
+
+def test_workday_range_fills_every_week_in_it(env):
+    """'del 1 al 14': todas las semanas del rango, no solo la del primer día (bug junio)."""
+    agent, ui, pipe, send = env
+    pipe.virtual = []
+    send("read_hours", month="2026-09")
+    send("fill_workday", start_date="2026-09-01", end_date="2026-09-14")
+    assert pipe.weeks_only == ["2026-08-30", "2026-09-06", "2026-09-13"]
+    assert pipe.approved[-1].startswith("Fill Workday 3 weeks 2026-09-01 → 2026-09-19")
+    send("fill_workday", start_date="2026-09-01", end_date="2026-09-30")     # todo lo leído → normal
+    assert pipe.weeks_only is None and agent.loaded.workday_done
+
+
+def test_workday_ignores_dates_the_user_did_not_write(env):
+    """'llena Workday' a secas: el modelo inventa la semana actual → se usa lo leído."""
+    agent, ui, pipe, send = env
+    pipe.virtual = []
+    send("read_hours", month="2026-09")
+    monkeypatch_intent(agent, "fill_workday", month="2026-10", start_date="2026-10-05", end_date="2026-10-11")
+    agent.handle("llena Workday con las horas leídas")
+    assert pipe.weeks_only is None and pipe.approved[-1].startswith("Fill Workday 2026-09")
 
 
 def test_workday_week_of_other_month_asks_to_read_it(env):
