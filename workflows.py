@@ -5,14 +5,16 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-from core import timesheet
+import config
+from core import analysis, timesheet
 from pipeline import Cancelled, Decision, Pipeline
 
 
 def findings_report(findings: dict) -> str:
-    """Texto del resumen + advertencias para la tarjeta de aprobación."""
-    summary = findings['summary']
-    lines = [summary.to_string(), "", f"TOTAL: {summary['Total'].sum():g} h"]
+    """Balance por proyecto + advertencias para la tarjeta de aprobación."""
+    lines = [analysis.balance_text(analysis.to_long(findings['timesheet']),
+                                   findings['start'], findings['end'],
+                                   config.EXPECTED_DAILY_HOURS)]
     if findings['unmapped']:
         lines += ["", "⚠ Outlook categories without a code (NOT included):"]
         lines += [f"   {cat}: {h:g} h" for cat, h in findings['unmapped'].items()]
@@ -22,24 +24,24 @@ def findings_report(findings: dict) -> str:
     return "\n".join(lines)
 
 
-def run_report(pipe: Pipeline, start: datetime, end: datetime, update_db: bool = True) -> dict:
+def run_report(pipe: Pipeline, start: datetime, end: datetime, refresh: bool = True) -> dict:
     """Solo genera el timesheet y lo muestra (no envía nada)."""
-    if update_db:
-        pipe.update_database()
+    if refresh:
+        pipe.refresh_task_details()
     findings = pipe.build_timesheet(start, end)
     pipe.cb.approve(f"Report {start:%Y-%m-%d} → {end:%Y-%m-%d}", findings_report(findings))
     return findings
 
 
-def run_workday_month(pipe: Pipeline, year: int, month: int, use_prorate: bool = False,
-                      confirm_each_week: bool = True, update_db: bool = True):
-    """Workday: mes calendario completo."""
+def run_workday_month(pipe: Pipeline, year: int, month: int,
+                      confirm_each_week: bool = True, refresh: bool = True):
+    """Workday: mes calendario completo. Prorratea si hay proyectos Prorate=1 (obligatorio)."""
     start, end = timesheet.month_bounds(year, month)
-    if update_db:
-        pipe.update_database()
+    if refresh:
+        pipe.refresh_task_details()
     findings = pipe.build_timesheet(start, end)
     csv_path = findings['path']
-    if use_prorate:
+    if pipe.virtual_projects(csv_path):
         csv_path = pipe.prorate(csv_path, start, end)
     pipe._approve(f"Fill Workday {start:%Y-%m-%d} → {end:%Y-%m-%d}?", findings_report(findings))
     pipe.fill_workday(csv_path, confirm_each_week=confirm_each_week)
@@ -63,13 +65,13 @@ def choose_n4w_weeks(pipe: Pipeline, year: int, month: int) -> tuple:
     return weeks[idx[0]][0], weeks[idx[-1]][1]
 
 
-def run_n4w(pipe: Pipeline, start: datetime, end: datetime, update_db: bool = True) -> str:
+def run_n4w(pipe: Pipeline, start: datetime, end: datetime, refresh: bool = True) -> str:
     """N4W: semanas completas lunes–domingo (sin prorrateo)."""
     ok, err = timesheet.validate_complete_weeks(start, end)
     if not ok:
         raise ValueError(err)
-    if update_db:
-        pipe.update_database()
+    if refresh:
+        pipe.refresh_task_details()
     findings = pipe.build_timesheet(start, end)
     pipe._approve(f"N4W {start:%Y-%m-%d} → {end:%Y-%m-%d}: hours OK?", findings_report(findings))
     return pipe.submit_n4w(findings['path'], start, end)

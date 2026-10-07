@@ -7,6 +7,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 from config import TIMEOUT, MAX_RETRIES, CDP_URL
 from core.workday.i18n import detect_language, get_texts
 from core.workday.csv_reader import get_week_dates, format_hours
+from core.workday.matching import best_option, option_task
 class WorkdayAutomation:
     def __init__(self, log_callback=None, confirm_callback=None):
         self.playwright = None
@@ -16,6 +17,7 @@ class WorkdayAutomation:
         self.lang = None
         self.log = log_callback if log_callback else print
         self.confirm = confirm_callback if confirm_callback else lambda msg: True
+        self.notes = []     # selecciones con varias opciones en la semana actual
     def connect(self):
         """Se conecta al navegador ya abierto vía CDP."""
         self.log("Connecting to browser...")
@@ -232,11 +234,13 @@ class WorkdayAutomation:
         except Exception:
             tipo_input.fill("")
 
+        row = tipo_input.evaluate_handle("e => e.closest('tr')")
         tipo_input.type(task_name, delay=60)
         self.page.wait_for_timeout(700)
 
         tipo_input.press("Enter")
         self.page.wait_for_timeout(2500)
+        self._pick_task(task_name, row)
 
         # 3) Llenar Worktags si se proporcionaron
         if worktags:
@@ -283,6 +287,24 @@ class WorkdayAutomation:
                 self.log(f"    ⚠ Error filling {date_str} with {val}: {e}")
                 raise
 
+
+    def _pick_task(self, task_name: str, row):
+        """
+        Tras Enter, Workday elige solo si hay un resultado. Con varios abre la lista:
+        se elige el de mayor coincidencia y se anota para la confirmación de la semana.
+        """
+        options = self.page.locator('[data-automation-id="promptLeafNode"]')
+        labels = [" ".join(t.split()) for t in options.all_inner_texts()]
+        if len(labels) > 1:
+            best, score = best_option(task_name, labels)
+            options.nth(best).click()
+            self.page.wait_for_timeout(1500)
+            self.notes.append(f"• {task_name}: {len(labels)} options → chose\n"
+                              f"  '{labels[best]}' ({score:.0%} match)")
+            self.log(f"    ⚠ {len(labels)} options for '{task_name}' → "
+                     f"'{option_task(labels[best])}' ({score:.0%} match)")
+        if not row.evaluate("r => !!r && !!r.querySelector('[data-automation-id=\"selectedItem\"]')"):
+            raise Exception(f"Workday did not select a work type for '{task_name}'")
 
     def _fill_worktags(self, worktags: list):
         for tag in worktags:
@@ -505,8 +527,12 @@ class WorkdayAutomation:
                         else:
                             self.log(f"  ✗ Error on '{task}': {e}")
             # Pedir confirmación antes de guardar
+            notes = ("⚠ Several Workday options, chose the best match — please check:\n"
+                     + "\n".join(self.notes) + "\n\n") if self.notes else ""
+            self.notes = []
             confirmed = self.confirm(
                 f"Week {week_num}/{total_weeks}  —  start: {week_start}\n\n"
+                + notes +
                 "Check in Workday that all projects and hours look correct.\n\n"
                 "Save this week and continue?"
             )

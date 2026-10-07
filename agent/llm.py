@@ -1,7 +1,8 @@
 # ============================================================
-# OLLAMA — interpretación de instrucciones (cualquier idioma)
-# y traducción de mensajes al idioma del usuario.
-# El LLM nunca ejecuta nada: devuelve JSON validado contra un esquema.
+# OLLAMA — interpretación de instrucciones (cualquier idioma).
+# Una sola llamada por mensaje: devuelve JSON validado contra un esquema.
+# El LLM nunca ejecuta ni calcula nada; los mensajes fijos se
+# traducen con agent/i18n.py (sin LLM).
 # ============================================================
 import json
 import logging
@@ -13,54 +14,89 @@ import config
 
 log = logging.getLogger(__name__)
 
-ACTIONS = ["fill_workday", "submit_n4w", "report", "update_database",
-           "sync_categories", "help", "other"]
+# Pasos (el usuario los pide uno a uno)
+STEPS = ["read_hours", "prorate", "fill_workday", "submit_n4w"]
+# "Mis proyectos" (la lista de códigos en los que trabaja el usuario)
+PROJECTS = ["my_projects", "add_project", "remove_project", "import_projects"]
+# Análisis sobre el historial
+ANALYSIS = ["hours_summary", "compare_months", "project_stats", "set_target",
+            "alerts", "load_history"]
+OTHER = ["update_database", "sync_categories", "help", "other"]
+ACTIONS = STEPS + PROJECTS + ANALYSIS + OTHER
+
+_str = {"type": ["string", "null"]}
+_num = {"type": ["number", "null"]}
 
 INTENT_SCHEMA = {
     "type": "object",
     "properties": {
         "action": {"type": "string", "enum": ACTIONS},
-        "month": {"type": ["string", "null"], "description": "YYYY-MM"},
-        "start_date": {"type": ["string", "null"], "description": "YYYY-MM-DD"},
-        "end_date": {"type": ["string", "null"], "description": "YYYY-MM-DD"},
-        "prorate": {"type": "boolean"},
-        "language": {"type": "string", "description": "ISO 639-1 code of the user's message"},
+        "month": _str,
+        "month2": _str,
+        "start_date": _str,
+        "end_date": _str,
+        "project": _str,
+        "target_pct": _num,
+        "target_hours": _num,
+        "months_back": {"type": ["integer", "null"]},
+        "language": {"type": "string"},
         "reply": {"type": "string"},
     },
-    "required": ["action", "month", "start_date", "end_date", "prorate", "language", "reply"],
+    "required": ["action", "month", "month2", "start_date", "end_date", "project",
+                 "target_pct", "target_hours", "months_back", "language", "reply"],
 }
 
-SYSTEM_PROMPT = """You are the assistant of "TimeSheet Agent", a tool that fills employee timesheets for The Nature Conservancy.
+SYSTEM_PROMPT = """You are the assistant of "TimeSheet Agent" (The Nature Conservancy).
+You ONLY help with the user's timesheet hours and the projects they charge time to.
 Today is {today} ({weekday}).
 
-Your ONLY job is to classify the user's message into a JSON intent. You never execute anything yourself.
+Classify the user's message into a JSON intent. You never execute anything and never invent numbers.
+The user controls every step: one message = one action. Never combine steps.
 
-Actions:
-- fill_workday: fill Workday with hours from the Outlook calendar. Workday is always a calendar MONTH → set "month".
-- submit_n4w: submit hours to N4W Facility. N4W uses complete Monday–Sunday weeks. If the user gives dates, set start_date/end_date; if they only name a month, set "month".
-- report: only generate/preview the hours for a period (nothing is submitted). Set "month" or start_date/end_date.
-- update_database: refresh the project codes database from Box.
-- sync_categories: create/remove Outlook categories from the database.
-- help: the user asks what you can do or how to use the tool.
-- other: greetings, unrelated or unclear requests.
+Steps:
+- read_hours: read the hours from the Outlook calendar for a period. Always the first step ("read/load my hours for October").
+- prorate: prorate (redistribute) the hours of the period already read.
+- fill_workday: fill Workday with the period already read.
+- submit_n4w: submit hours to N4W Facility (Monday-Sunday weeks).
+My projects (the list of project codes the user works on):
+- my_projects: show/review the projects I work on ("which are my projects?").
+- add_project: the user works on new project(s) ("I'm also working on FS3602A"). Set "project" (first code).
+- remove_project: the user no longer works on a project ("I don't work on SE3202 anymore"). Set "project".
+- import_projects: import my project codes from an Excel file ("import my projects from Excel").
+Analysis of saved history:
+- hours_summary: summary/balance of hours by project for a month or dates.
+- compare_months: compare "month" with "month2" (month2 null = the previous month). "Did I charge more than in August?"
+- project_stats: averages and history of "project", or of all projects if no code.
+- set_target: the user states the dedication a project SHOULD have: target_pct (% of the month) and/or target_hours (hours per month).
+- alerts: check a month for problems (deviations from targets or averages, missing hours).
+- load_history: read past months from Outlook to build the history. months_back = number of months.
+Other:
+- update_database: download again the global project list (N4W_Task_Details) and review my projects.
+- sync_categories: create the missing Outlook categories for my projects.
+- help: what you can do / how to use the tool.
+- other: anything not about the user's hours or projects.
 
-Rules:
-- Resolve relative dates using today ("this month", "last month", "octubre" = the most recent October that is not in the future unless the user says otherwise).
-- "prorate" is true only if the user explicitly asks to prorate/redistribute hours.
-- "language": ISO 639-1 code of the language the user wrote in (es, en, pt, fr, ...).
-- "reply": one or two short sentences IN THE USER'S LANGUAGE. For actions, restate what will be done including the period. For help, briefly list what you can do. For other, answer briefly and steer back to timesheets. If the period is missing for an action that needs it, ask for it.
-- Never invent hours, project codes or results."""
+Fields (null when not given):
+- month, month2: "YYYY-MM". Resolve relative dates with today ("this month", "last month"; a month name = its most recent occurrence not in the future).
+- start_date, end_date: "YYYY-MM-DD", only when the user gives explicit days.
+- project: project code as written, uppercase (e.g. "OF0104").
+- language: ISO 639-1 code of the user's message (es, en, pt, fr...).
+- reply: ONE short sentence IN THE USER'S LANGUAGE saying what you will do (with the period or project). Never numbers or results: the app shows them. For help: list the steps (read hours → prorate → fill Workday / submit N4W), managing my projects and the analysis questions. For other: say you only help with timesheet hours and projects."""
 
 
 @dataclass
 class Intent:
     action: str
-    month: Optional[str]
-    start_date: Optional[str]
-    end_date: Optional[str]
-    prorate: bool
-    language: str
-    reply: str
+    language: str = "en"
+    reply: str = ""
+    month: Optional[str] = None
+    month2: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    project: Optional[str] = None
+    target_pct: Optional[float] = None
+    target_hours: Optional[float] = None
+    months_back: Optional[int] = None
 
 
 def _client():
@@ -68,8 +104,8 @@ def _client():
     return Client(host=config.OLLAMA_HOST)
 
 
-def _chat(messages: list, fmt=None) -> str:
-    kwargs = dict(model=config.OLLAMA_MODEL, messages=messages,
+def _chat(messages: list, fmt=None, model: str = None) -> str:
+    kwargs = dict(model=model or config.OLLAMA_MODEL, messages=messages,
                   options={"temperature": 0, "num_ctx": config.OLLAMA_NUM_CTX})
     if fmt is not None:
         kwargs["format"] = fmt
@@ -94,7 +130,11 @@ def check_ollama() -> tuple:
     return True, wanted
 
 
-def parse_intent(text: str, history: List[dict]) -> Intent:
+def _clean_code(value) -> Optional[str]:
+    return str(value).strip().upper() if value else None
+
+
+def parse_intent(text: str, history: List[dict], model: str = None) -> Intent:
     """history: [{'role': 'user'|'assistant', 'content': str}] (últimos turnos)."""
     today = date.today()
     messages = [{"role": "system",
@@ -102,39 +142,19 @@ def parse_intent(text: str, history: List[dict]) -> Intent:
     messages += history[-6:]
     messages.append({"role": "user", "content": text})
 
-    raw = _chat(messages, fmt=INTENT_SCHEMA)
-    data = json.loads(raw)
+    data = json.loads(_chat(messages, fmt=INTENT_SCHEMA, model=model))
     log.debug(f"intent: {data}")
     action = data.get("action") if data.get("action") in ACTIONS else "other"
     return Intent(
         action=action,
-        month=data.get("month") or None,
-        start_date=data.get("start_date") or None,
-        end_date=data.get("end_date") or None,
-        prorate=bool(data.get("prorate")),
         language=(data.get("language") or "en").lower()[:2],
         reply=data.get("reply") or "",
+        month=data.get("month") or None,
+        month2=data.get("month2") or None,
+        start_date=data.get("start_date") or None,
+        end_date=data.get("end_date") or None,
+        project=_clean_code(data.get("project")),
+        target_pct=data.get("target_pct"),
+        target_hours=data.get("target_hours"),
+        months_back=data.get("months_back"),
     )
-
-
-_cache = {}
-
-
-def localize(text: str, lang: str) -> str:
-    """Traduce un mensaje del sistema (en inglés) al idioma del usuario."""
-    if not text or lang == "en":
-        return text
-    key = (text, lang)
-    if key not in _cache:
-        try:
-            _cache[key] = _chat([
-                {"role": "system", "content":
-                    f"Translate the user's text into the language with ISO code '{lang}'. "
-                    "Keep numbers, dates, project codes, file names and symbols (✓ ⚠ →) unchanged. "
-                    "Output only the translation."},
-                {"role": "user", "content": text},
-            ]).strip()
-        except Exception as e:
-            log.warning(f"Translation failed: {e}")
-            return text
-    return _cache[key]

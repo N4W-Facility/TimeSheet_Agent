@@ -4,7 +4,6 @@
 # para que el resto del paquete se pueda importar/testear en Linux.
 # ============================================================
 import logging
-import time
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
@@ -79,12 +78,12 @@ def build_timesheet(meetings: pd.DataFrame, start: datetime, end: datetime,
     Args:
         meetings: salida de read_meetings
         start, end: rango inclusivo
-        db: hoja de proyectos (read_database)
+        db: catálogo de códigos (database.catalog)
 
     Returns:
         (timesheet, unmapped)
         timesheet: DataFrame index=Code, columnas Task Name, Grant ID y fechas 'YYYY-MM-DD HH:MM:SS'
-        unmapped: dict {categoría_outlook: horas} de categorías sin código en la BD (se descartan)
+        unmapped: dict {categoría_outlook: horas} de categorías sin código conocido (se descartan)
     """
     end_exclusive = end + timedelta(days=1)
 
@@ -115,38 +114,17 @@ def build_timesheet(meetings: pd.DataFrame, start: datetime, end: datetime,
     return value, unmapped
 
 
-def sync_categories(db: pd.DataFrame, on_progress=None):
-    """Crea/elimina categorías de Outlook según la columna Include de la BD."""
-    import pythoncom
+def add_category(name: str) -> bool:
+    """Crea una categoría de Outlook. False si ya existía."""
     import win32com.client
 
-    df = db.dropna(subset=['Code']).fillna(0)
-    for column in ('Category', 'Include'):
-        if column not in df.columns:
-            raise ValueError(f"The database must contain a '{column}' column.")
-
-    pythoncom.CoInitialize()
-    try:
-        outlook = win32com.client.Dispatch("Outlook.Application")
-        categories = outlook.Session.Categories
-        existing = [categories.Item(i).Name for i in range(1, categories.Count + 1)]
-
-        total = len(df)
-        for n, (i, row) in enumerate(df.iterrows(), 1):
-            name, include = row['Category'], row['Include']
-            color_index = row.get('ColorIndex', i % 25 + 1)
-            if include == 1 and name not in existing:
-                categories.Add(name, color_index)
-            elif include == 0 and name in existing:
-                categories.Remove(name)
-
-            time.sleep(0.25)
-            if i % 10 == 0:
-                pythoncom.PumpWaitingMessages()   # evita desconexiones COM
-            if on_progress:
-                on_progress(n, total)
-    finally:
-        pythoncom.CoUninitialize()
+    categories = win32com.client.Dispatch("Outlook.Application").Session.Categories
+    existing = [categories.Item(i).Name for i in range(1, categories.Count + 1)]
+    if name in existing:
+        return False
+    categories.Add(name, categories.Count % 25 + 1)
+    log.info(f"Outlook category created: {name}")
+    return True
 
 
 def get_active_email() -> Optional[str]:

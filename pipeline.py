@@ -18,17 +18,19 @@ from typing import Callable, List, Optional
 import pandas as pd
 
 import config
-from core import database, n4w, outlook, prorate, timesheet
+from core import analysis, database, n4w, outlook, prorate, timesheet
+from core.utils import get_date_columns
 
 
 @dataclass
 class Decision:
     """Pregunta que el pipeline no puede resolver solo."""
-    kind: str                 # 'prorate_targets', 'n4w_weeks', ...
+    kind: str                 # 'prorate_targets', 'n4w_weeks', 'add_projects', ...
     question: str
     options: List[str]
     multi: bool = False       # True → se esperan varias opciones
     context: dict = field(default_factory=dict)
+    preselected: List[str] = field(default_factory=list)   # marcadas al abrir (multi)
 
 
 @dataclass
@@ -60,10 +62,10 @@ def _fmt(d: datetime) -> str:
 class Pipeline:
     """Cada método público es un paso independiente (el agente los encadena)."""
 
-    def __init__(self, db_path: str, email: Optional[str] = None,
+    def __init__(self, workdir: Optional[str] = None, email: Optional[str] = None,
                  callbacks: Optional[Callbacks] = None):
-        self.db_path = os.path.abspath(db_path)
-        self.workdir = os.path.dirname(self.db_path)
+        self.workdir = os.path.abspath(workdir or config.WORK_DIR)
+        os.makedirs(self.workdir, exist_ok=True)
         self.email = email
         self.cb = callbacks or Callbacks()
         self.task_details_path = self._path(config.N4W_TASK_DETAILS_NAME)
@@ -82,26 +84,57 @@ class Pipeline:
         if not self.cb.approve(title, detail):
             raise Cancelled(f"Cancelled by user: {title}")
 
-    # ── Base de datos / categorías ───────────────────────────
-    def update_database(self) -> list:
-        self.cb.log("Downloading N4W codes from Box...")
-        database.download_box_file(config.BOX_URL, self.task_details_path)
-        removed = database.update_database(self.db_path, self.task_details_path)
-        for p in removed:
-            self.cb.log(f"  − {p['code']} {p['description']} ({p['reason']})")
-        return removed
+    def _ensure_task_details(self):
+        if not os.path.exists(self.task_details_path):
+            self.cb.log("Downloading N4W codes from Box...")
+            database.download_box_file(config.BOX_URL, self.task_details_path)
 
-    def sync_categories(self):
-        """Crea/elimina las categorías de Outlook según la BD (Include)."""
-        self.cb.log("Syncing Outlook categories...")
-        outlook.sync_categories(database.read_database(self.db_path))
-        self.cb.log("✓ Categories synced")
+    def refresh_task_details(self) -> tuple:
+        """
+        Descarga la base global (N4W_Task_Details) de Box. Sin red usa la copia local.
+        Returns: (descargado_ahora, fecha 'YYYY-MM-DD HH:MM' de la copia usada)
+        """
+        fresh = True
+        try:
+            self.cb.log("Downloading N4W codes from Box...")
+            database.download_box_file(config.BOX_URL, self.task_details_path)
+        except Exception as e:
+            if not os.path.exists(self.task_details_path):
+                raise
+            self.cb.log(f"  Box download failed ({e}); using the local copy")
+            fresh = False
+        when = datetime.fromtimestamp(os.path.getmtime(self.task_details_path))
+        return fresh, f"{when:%Y-%m-%d %H:%M}"
+
+    def task_status(self) -> dict:
+        """Estado global por código (activo / cerrado / sin abrir, prorrateable, nombres)."""
+        self._ensure_task_details()
+        return database.task_status(self.task_details_path)
+
+    def catalog(self) -> pd.DataFrame:
+        """Todos los códigos conocidos: base global + internos XX."""
+        self._ensure_task_details()
+        return database.catalog(self.task_details_path)
+
+    # ── Categorías de Outlook ────────────────────────────────
+    def create_categories(self, codes: List[str]) -> List[str]:
+        """Crea las categorías 'CODE | Descripción' que falten. Devuelve las creadas."""
+        cat = self.catalog().set_index('Code')
+        created = []
+        for code in codes:
+            if code not in cat.index:
+                continue
+            name = cat.loc[code, 'Category']
+            if outlook.add_category(name):
+                created.append(name)
+        return created
 
     # ── Outlook → timesheet ──────────────────────────────────
-    def build_timesheet(self, start: datetime, end: datetime) -> dict:
+    def build_timesheet(self, start: datetime, end: datetime, save_files: bool = True) -> dict:
         """
         Genera 01-Report y 02-Timesheet del rango [start, end].
-        Returns: {'path', 'summary', 'unmapped', 'irregular_days'}
+        save_files=False: solo lee (carga de historial), no escribe archivos.
+        Returns: {'path', 'timesheet', 'start', 'end', 'summary', 'unmapped', 'irregular_days'}
         """
         if start > end:
             raise ValueError("Start date is after end date.")
@@ -110,17 +143,20 @@ class Pipeline:
         if meetings.empty:
             raise ValueError("Outlook returned no meetings for this period.")
 
-        db = database.read_database(self.db_path)
-        ts, unmapped = outlook.build_timesheet(meetings, start, end, db)
+        ts, unmapped = outlook.build_timesheet(meetings, start, end, self.catalog())
 
         path = self._path(config.TIMESHEET_NAME, start, end)
-        meetings.to_excel(self._path(config.REPORT_NAME, start, end))
-        ts.to_csv(path, index_label='Code')
-        self.cb.log(f"✓ {os.path.basename(path)}: {len(ts)} codes")
+        if save_files:
+            meetings.to_excel(self._path(config.REPORT_NAME, start, end))
+            ts.to_csv(path, index_label='Code')
+            self.cb.log(f"✓ {os.path.basename(path)}: {len(ts)} codes")
 
         df = ts.reset_index()
         findings = {
-            'path': path,
+            'path': path if save_files else None,
+            'timesheet': df,
+            'start': start,
+            'end': end,
             'summary': timesheet.summarize(df),
             'unmapped': unmapped,
             'irregular_days': timesheet.find_irregular_days(df),
@@ -131,25 +167,38 @@ class Pipeline:
             self.cb.log(f"  ⚠ {d['date']}: {d['hours']:g} h ({d['issue']})")
         return findings
 
-    # ── Prorrateo (opcional) ─────────────────────────────────
+    # ── Prorrateo (obligatorio para Workday si hay proyectos Prorate=1) ──
+    def virtual_projects(self, csv_path: str) -> List[str]:
+        """Códigos con horas marcados Prorate=1 en N4W_Task_Details (deben prorratearse)."""
+        self._ensure_task_details()
+        df = prorate.classify_projects(pd.read_csv(csv_path), self.task_details_path)
+        hours = df[get_date_columns(df)].sum(axis=1)
+        return df.loc[(df['Prorate'] == 1) & (hours > 0), 'Code'].astype(str).tolist()
+
     def prorate(self, csv_path: str, start: datetime, end: datetime) -> str:
         """Reparte horas virtuales → 03-Timesheet_Prorate. Devuelve la ruta."""
+        self._ensure_task_details()
         ts = pd.read_csv(csv_path)
+        virtual = self.virtual_projects(csv_path)
         candidates = prorate.real_projects(ts, self.task_details_path)
+        balance = analysis.by_project(analysis.to_long(ts))
+        labels = {f"{c} — {str(balance['Task Name'].get(c, ''))[:30]} "
+                  f"({analysis.h(balance['Hours'].get(c, 0.0))} h)": c for c in candidates}
         selected = self.cb.decide(Decision(
             kind='prorate_targets',
-            question="Which projects should receive the prorated hours?",
-            options=candidates, multi=True,
+            question=(f"Prorate {', '.join(virtual)}: which projects should receive "
+                      "those hours? (proportional to their hours)"),
+            options=list(labels), multi=True,
+            context={'virtual': virtual},
         ))
         if selected is None:
             raise Cancelled("Prorate cancelled")
-        selections = {c: c in selected for c in candidates}
+        chosen = {labels[s] for s in selected}
+        selections = {c: c in chosen for c in candidates}
 
-        result = prorate.redistribute(ts, self.task_details_path, selections, self.db_path)
-        before = timesheet.summarize(ts)['Total'].rename('Original')
-        after = timesheet.summarize(result)['Total'].rename('Prorated')
-        comparison = pd.concat([before, after], axis=1).fillna(0)
-        self._approve("Prorate comparison", comparison.to_string())
+        result = prorate.redistribute(ts, self.task_details_path, selections, self.catalog())
+        self._approve("Prorated hours — use them for Workday?",
+                      analysis.prorate_comparison(ts, result, virtual))
 
         path = self._path(config.PRORATE_NAME, start, end)
         result.to_csv(path, index=False)

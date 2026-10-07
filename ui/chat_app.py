@@ -10,7 +10,7 @@ from tkinter import filedialog
 import customtkinter as ctk
 
 import config
-from agent import llm
+from agent import llm, suggest
 from agent.agent import Agent
 from agent.settings import Settings
 from pipeline import Decision
@@ -38,11 +38,16 @@ WRAP       = 470
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
-WELCOME = ("Hi! Tell me what you need, for example:\n"
-           "  • \"Fill Workday for October\"\n"
-           "  • \"Submit N4W for the weeks of October\"\n"
-           "  • \"Show me my hours for last month\"\n"
-           "You can write in any language.")
+MAX_DROPDOWN = 5
+
+
+def _com_init():
+    try:
+        import pythoncom
+    except ImportError:          # Linux/tests
+        return None
+    pythoncom.CoInitialize()
+    return pythoncom
 
 
 class ChatApp:
@@ -57,10 +62,13 @@ class ChatApp:
         self.agent = Agent(ui=self, settings=self.settings)
         self.busy = False
         self.log_visible = False
+        self.tips = []            # frases sugeridas según el paso actual
+        self.dd_items = []        # autocompletado visible
+        self.dd_index = -1
 
         self._build_ui()
-        self._agent_bubble(WELCOME)
         threading.Thread(target=self._check_ollama, daemon=True).start()
+        self.root.after(200, lambda: self._run_agent(self.agent.greet))
         if self.settings.missing():
             self.root.after(400, self._open_settings)
 
@@ -74,8 +82,10 @@ class ChatApp:
         left.pack(side="left")
         ctk.CTkLabel(left, text="TimeSheet Agent", font=(FONT, 20, "bold"),
                      text_color=TEXT).pack(anchor="w")
-        ctk.CTkLabel(left, text="Workday & N4W Facility assistant", font=(FONT, 11),
+        ctk.CTkLabel(left, text="Timesheet hours & projects assistant", font=(FONT, 11),
                      text_color=MUTED).pack(anchor="w")
+        self.lbl_progress = ctk.CTkLabel(left, text="", font=(FONT, 11), text_color=BLUE)
+        self.lbl_progress.pack(anchor="w", pady=(4, 0))
 
         right = ctk.CTkFrame(hdr, fg_color="transparent")
         right.pack(side="right")
@@ -101,11 +111,21 @@ class ChatApp:
                                   fg_color=INPUT_BG, border_color=BORDER, corner_radius=8,
                                   placeholder_text="Type an instruction (any language)...")
         self.entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        self.entry.bind("<Return>", lambda e: self._send())
+        self.entry.bind("<Return>", self._on_return)
+        self.entry.bind("<Tab>", self._on_tab)
+        self.entry.bind("<Down>", lambda e: self._move(1))
+        self.entry.bind("<Up>", lambda e: self._move(-1))
+        self.entry.bind("<Escape>", lambda e: self._hide_dropdown())
+        self.entry.bind("<KeyRelease>", self._on_type)
         self.btn_send = ctk.CTkButton(bar, text="Send  ➤", width=90, height=40,
                                       font=(FONT, 12, "bold"), fg_color=BLUE,
                                       hover_color=BLUE_HOV, corner_radius=8, command=self._send)
         self.btn_send.pack(side="left")
+
+        # Siguiente paso sugerido (Tab lo escribe en el campo)
+        self.lbl_hint = ctk.CTkLabel(bottom, text="", font=(FONT, 11), text_color=MUTED,
+                                     anchor="w", justify="left")
+        self.lbl_hint.pack(side="bottom", fill="x", pady=(0, 4))
 
         status_row = ctk.CTkFrame(bottom, fg_color="transparent")
         status_row.pack(side="bottom", fill="x", pady=(0, 6))
@@ -121,6 +141,92 @@ class ChatApp:
         # Chat
         self.chat = ctk.CTkScrollableFrame(self.root, fg_color=BG, corner_radius=0)
         self.chat.pack(fill="both", expand=True, padx=12, pady=(0, 4))
+
+        # Autocompletado: lista flotante sobre el campo de texto
+        self.dropdown = ctk.CTkFrame(self.root, fg_color=CARD_BG, border_color=BORDER,
+                                     border_width=1, corner_radius=8)
+
+    # ── Sugerencias y autocompletado ─────────────────────────
+
+    def _refresh_suggestions(self):
+        """Tras cada turno: frases del paso actual, pista y progreso."""
+        try:
+            self.tips = self.agent.suggestions()
+            progress = self.agent.progress()
+        except Exception as e:          # nunca debe romper el chat
+            self.log(f"Suggestions unavailable: {e}")
+            self.tips, progress = [], ""
+        self.lbl_progress.configure(text=progress)
+        self._update_hint()
+
+    def _update_hint(self):
+        empty = not self.entry.get()
+        text = f"Next:  {self.tips[0]}     ⇥ Tab" if self.tips and empty and not self.busy else ""
+        self.lbl_hint.configure(text=text)
+
+    def _on_type(self, event):
+        if event.keysym in ("Up", "Down", "Tab", "Return", "Escape"):
+            return
+        self._update_hint()
+        text = self.entry.get()
+        items = suggest.match(text, self.tips, MAX_DROPDOWN) if not self.busy else []
+        if items:
+            self._show_dropdown(items)
+        else:
+            self._hide_dropdown()
+
+    def _show_dropdown(self, items):
+        self.dd_items, self.dd_index = items, -1
+        for w in self.dropdown.winfo_children():
+            w.destroy()
+        width = self.entry.winfo_width()
+        self.dd_labels = []
+        for text in items:
+            lbl = ctk.CTkLabel(self.dropdown, text=text, font=(FONT, 12), text_color=TEXT,
+                               anchor="w", width=width - 12, height=28, corner_radius=6,
+                               fg_color="transparent")
+            lbl.pack(fill="x", padx=5, pady=1)
+            lbl.bind("<Button-1>", lambda e, t=text: self._accept(t))
+            self.dd_labels.append(lbl)
+        self.root.update_idletasks()
+        x = self.entry.winfo_rootx() - self.root.winfo_rootx()
+        y = self.entry.winfo_rooty() - self.root.winfo_rooty() - 4
+        self.dropdown.place(x=x, y=y, anchor="sw")
+        self.dropdown.lift()
+
+    def _hide_dropdown(self):
+        self.dropdown.place_forget()
+        self.dd_items, self.dd_index = [], -1
+
+    def _move(self, step: int):
+        if not self.dd_items:
+            return "break"
+        self.dd_index = (self.dd_index + step) % len(self.dd_items)
+        for i, lbl in enumerate(self.dd_labels):
+            lbl.configure(fg_color=BORDER if i == self.dd_index else "transparent")
+        return "break"
+
+    def _accept(self, text: str):
+        self.entry.delete(0, "end")
+        self.entry.insert(0, text)
+        self.entry.icursor("end")
+        self.entry.focus_set()
+        self._hide_dropdown()
+        self._update_hint()
+
+    def _on_tab(self, event):
+        if self.dd_items:
+            self._accept(self.dd_items[max(self.dd_index, 0)])
+        elif not self.entry.get() and self.tips:
+            self._accept(self.tips[0])
+        return "break"      # no mover el foco
+
+    def _on_return(self, event):
+        if self.dd_items and self.dd_index >= 0:
+            self._accept(self.dd_items[self.dd_index])
+        else:
+            self._send()
+        return "break"
 
     # ── Burbujas y tarjetas ──────────────────────────────────
 
@@ -205,20 +311,39 @@ class ChatApp:
             self.log_box.configure(state="disabled")
         self.root.after(0, _update)
 
+    def _detail_box(self, card, detail: str):
+        lines = detail.count("\n") + 1
+        box = ctk.CTkTextbox(card, height=min(300, 18 * lines + 16), font=(MONO, 11),
+                             fg_color=INPUT_BG, text_color=TEXT, border_color=BORDER,
+                             border_width=1, corner_radius=6, wrap="none")
+        box.insert("1.0", detail)
+        box.configure(state="disabled")
+        box.pack(fill="x", padx=14, pady=(0, 12))
+
+    def show(self, title: str, detail: str):
+        """Tarjeta informativa (tablas de análisis), sin botones."""
+        def build():
+            self._detail_box(self._card(title, BORDER), detail)
+            self._scroll_bottom()
+        self.root.after(0, build)
+
     def approve(self, title: str, detail: str) -> bool:
         def build(done):
             card = self._card(title, AMBER)
-            lines = detail.count("\n") + 1
-            box = ctk.CTkTextbox(card, height=min(260, 18 * lines + 16), font=(MONO, 11),
-                                 fg_color=INPUT_BG, text_color=TEXT, border_color=BORDER,
-                                 border_width=1, corner_radius=6, wrap="none")
-            box.insert("1.0", detail)
-            box.configure(state="disabled")
-            box.pack(fill="x", padx=14)
+            self._detail_box(card, detail)
             self._buttons(card, "Approve ✓", GREEN, GREEN_HOV,
                           lambda: done(True), lambda: done(False))
             self._scroll_bottom()
         return bool(self._wait(build))
+
+    def pick_file(self, title: str):
+        """Explorador de archivos Excel (hilo de UI); None si se cancela."""
+        def build(done):
+            path = filedialog.askopenfilename(
+                parent=self.root, title=title,
+                filetypes=[("Excel files", "*.xlsx *.xlsm"), ("All files", "*.*")])
+            done(path or None)
+        return self._wait(build)
 
     def decide(self, decision: Decision):
         def build(done):
@@ -229,7 +354,7 @@ class ChatApp:
             if decision.multi:
                 vars_ = []
                 for opt in decision.options:
-                    v = ctk.BooleanVar(value=False)
+                    v = ctk.BooleanVar(value=opt in decision.preselected)
                     ctk.CTkCheckBox(body, text=opt, variable=v, font=(FONT, 12),
                                     text_color=TEXT, border_color=MUTED,
                                     fg_color=BLUE).pack(anchor="w", pady=3)
@@ -254,13 +379,22 @@ class ChatApp:
         if not text or self.busy:
             return
         self.entry.delete(0, "end")
+        self._hide_dropdown()
         self._user_bubble(text)
+        self._run_agent(lambda: self.agent.handle(text))
+
+    def _run_agent(self, fn):
         self._set_busy(True)
 
         def work():
+            com = _com_init()   # Outlook/Excel COM desde un hilo que no es el principal
             try:
-                self.agent.handle(text)
+                fn()
+            except Exception as e:      # p. ej. al retomar la sesión: nunca bloquea la app
+                self.log(f"⚠ {e}")
             finally:
+                if com:
+                    com.CoUninitialize()
                 self.root.after(0, lambda: self._set_busy(False))
 
         threading.Thread(target=work, daemon=True).start()
@@ -272,9 +406,12 @@ class ChatApp:
         self.btn_send.configure(state=state)
         if busy:
             self._set_status("Working...", AMBER)
+            self._hide_dropdown()
+            self.lbl_hint.configure(text="")
         else:
             self._set_status("Ready", MUTED)
             self.entry.focus_set()
+            self._refresh_suggestions()
 
     def _set_status(self, text: str, color: str = MUTED):
         self.root.after(0, lambda: self.lbl_status.configure(text=f"●  {text}", text_color=color))
@@ -300,37 +437,22 @@ class ChatApp:
     def _open_settings(self):
         win = ctk.CTkToplevel(self.root)
         win.title("Settings")
-        win.geometry("520x250")
+        win.geometry("520x210")
         win.resizable(False, False)
         win.configure(fg_color=BG)
         win.transient(self.root)
         win.after(100, win.grab_set)
 
-        def field(label, value, browse=False):
-            ctk.CTkLabel(win, text=label, font=(FONT, 12, "bold"),
-                         text_color=TEXT).pack(anchor="w", padx=20, pady=(14, 4))
-            row = ctk.CTkFrame(win, fg_color="transparent")
-            row.pack(fill="x", padx=20)
-            var = ctk.StringVar(value=value)
-            ctk.CTkEntry(row, textvariable=var, height=34, font=(FONT, 11), text_color=TEXT,
-                         fg_color=INPUT_BG, border_color=BORDER).pack(side="left", fill="x", expand=True)
-            if browse:
-                def pick():
-                    path = filedialog.askopenfilename(
-                        parent=win, title="Select projects database",
-                        filetypes=[("Excel files", "*.xlsx *.xlsm"), ("All files", "*.*")])
-                    if path:
-                        var.set(path)
-                ctk.CTkButton(row, text="Browse", width=80, height=34, font=(FONT, 11),
-                              fg_color=BLUE, hover_color=BLUE_HOV, corner_radius=6,
-                              command=pick).pack(side="left", padx=(8, 0))
-            return var
-
-        db_var = field("Projects database (Excel)", self.settings.db_path, browse=True)
-        email_var = field("Email (Outlook account)", self.settings.email)
+        ctk.CTkLabel(win, text="Email (Outlook account)", font=(FONT, 12, "bold"),
+                     text_color=TEXT).pack(anchor="w", padx=20, pady=(14, 4))
+        email_var = ctk.StringVar(value=self.settings.email)
+        ctk.CTkEntry(win, textvariable=email_var, height=34, font=(FONT, 11), text_color=TEXT,
+                     fg_color=INPUT_BG, border_color=BORDER).pack(fill="x", padx=20)
+        # Mis proyectos se arman en el chat; los archivos van a la carpeta de trabajo
+        ctk.CTkLabel(win, text=f"Your projects are managed in the chat.\nFiles: {config.WORK_DIR}",
+                     font=(FONT, 11), text_color=MUTED, justify="left").pack(anchor="w", padx=20, pady=(10, 0))
 
         def save():
-            self.settings.db_path = db_var.get().strip()
             self.settings.email = email_var.get().strip()
             self.settings.save()
             win.destroy()

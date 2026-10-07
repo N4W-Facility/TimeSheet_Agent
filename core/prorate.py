@@ -8,7 +8,6 @@ from typing import Dict, List
 
 import pandas as pd
 
-from config import DB_SHEET
 from core.utils import get_date_columns, is_special_code
 
 log = logging.getLogger(__name__)
@@ -43,12 +42,12 @@ def _weights(df_real: pd.DataFrame, date_columns: List[str]) -> pd.Series:
 
 
 def redistribute(timesheet: pd.DataFrame, task_details_path: str,
-                 selections: Dict[str, bool], db_path: str = None) -> pd.DataFrame:
+                 selections: Dict[str, bool], names: pd.DataFrame = None) -> pd.DataFrame:
     """
     Args:
         timesheet: 02-Timesheet.csv como DataFrame (columna Code)
         selections: {code_real: True si recibe horas}. Códigos ausentes → True.
-        db_path: BD del usuario, para reponer Task Name / Grant ID
+        names: catálogo [Code, Task Name, Grant ID] para reponer esas columnas
 
     Returns:
         DataFrame [Code, Task Name, Grant ID, fechas...]
@@ -104,8 +103,8 @@ def redistribute(timesheet: pd.DataFrame, task_details_path: str,
         parts.append(df_excepted[base_columns])
     df_result = pd.concat(parts, ignore_index=True)
 
-    if db_path:
-        df_db = pd.read_excel(db_path, sheet_name=DB_SHEET)[['Code', 'Task Name', 'Grant ID']].drop_duplicates()
+    if names is not None:
+        df_db = names[['Code', 'Task Name', 'Grant ID']].drop_duplicates(subset=['Code'])
         df_result = df_result.merge(df_db, on='Code', how='left')
         df_result['Task Name'] = df_result['Task Name'].fillna('')
         df_result['Grant ID'] = df_result['Grant ID'].fillna('')

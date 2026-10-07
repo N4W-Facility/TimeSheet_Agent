@@ -1,16 +1,23 @@
 # ============================================================
-# BASE DE DATOS DE CÓDIGOS N4W (Excel local + archivo de Box)
+# BASE GLOBAL DE PROYECTOS (N4W_Task_Details.xlsx, de Box)
+# Es la única fuente de nombres, Task Name, Grant ID, estado
+# (activo / cerrado) y Prorate. "Mis proyectos" (los códigos en los
+# que trabaja el usuario) viven en el historial (core/history.py).
 # ============================================================
 import logging
-import os
+import re
+from typing import List, Optional, Tuple
 
 import pandas as pd
 import requests
 
-from config import DB_PASSWORD, DB_SHEET
+from config import INTERNAL_CODES, LEGACY_DB_SHEET
 from core.utils import is_special_code
 
 log = logging.getLogger(__name__)
+
+CATALOG_COLUMNS = ['Code', 'Description', 'Task Name', 'Grant ID', 'Category', 'Include']
+CODE_RE = re.compile(r"^[A-Z]{2}\d{3,5}[A-Z]{0,2}$")    # forma de un código (OF0104, FS3602A)
 
 
 def download_box_file(url_box: str, output_path: str) -> str:
@@ -24,140 +31,105 @@ def download_box_file(url_box: str, output_path: str) -> str:
     return output_path
 
 
-def read_database(filepath: str) -> pd.DataFrame:
-    """Lee la hoja de proyectos (Code, Description, Task Name, Grant ID, Category, Include)."""
-    return pd.read_excel(filepath, sheet_name=DB_SHEET)
-
-
 def _is_empty(value) -> bool:
     if value is None or pd.isna(value):
         return True
     return isinstance(value, str) and len(value.strip()) == 0
 
 
-def update_database(db_path: str, box_file_path: str) -> list:
+def _text(value) -> str:
+    return "" if _is_empty(value) else str(value).strip()
+
+
+def category_name(code: str, description: str) -> str:
+    """Categoría de Outlook: 'CODE | Descripción' (el código es lo que se lee)."""
+    return f"{code} | {description}"
+
+
+def task_status(task_details_path: str) -> dict:
     """
-    Sincroniza la BD local con el archivo de Box y elimina proyectos cerrados.
-    Escribe vía Excel COM (la hoja está protegida y tiene fórmulas) → solo Windows.
-
-    Returns:
-        Lista de proyectos eliminados: [{'code', 'description', 'reason'}]
+    Estado global de todos los proyectos de N4W_Task_Details.xlsx:
+    CÓDIGO (mayúsculas) → {'status': 'active'|'closed'|'not_opened', 'prorate': bool,
+                           'description', 'task_name', 'grant_id', 'closed'}
     """
-    db_path = os.path.abspath(db_path)
-
-    df_base = pd.read_excel(db_path, sheet_name=DB_SHEET)
-    df_source = pd.read_excel(box_file_path)
-    log.info(f"Database: {len(df_base)} rows | Box: {len(df_source)} rows")
-
-    # ── 1) Actualizar Description / Task Name / Grant ID / Category ──
-    valid_codes = {
-        c for c in df_base['Code']
-        if not _is_empty(c) and not is_special_code(c)
-        and not (isinstance(c, (int, float)) and not isinstance(c, bool) and c == -1)
-    }
-    missing = valid_codes - set(df_source['Task_Name'].dropna())
-    if missing:
-        raise ValueError(f"Database codes not found in the Box file: {missing}")
-
-    src = df_source.set_index('Task_Name')
-    for idx in df_base.index:
-        code = df_base.loc[idx, 'Code']
-        if is_special_code(code):
+    df = pd.read_excel(task_details_path)
+    out = {}
+    for _, r in df.iterrows():
+        if _is_empty(r.get('Task_Name')):
             continue
-        if not _is_empty(code) and code in src.index:
-            df_base.loc[idx, 'Description'] = src.loc[code, 'Task_Name_Description']
-            df_base.loc[idx, 'Task Name'] = src.loc[code, 'WD_TaskName']
-            df_base.loc[idx, 'Grant ID'] = src.loc[code, 'WD_GrantID']
-            df_base.loc[idx, 'Category'] = f"{code} | {df_base.loc[idx, 'Description']}"
-        elif _is_empty(code):
-            for col in ('Description', 'Task Name', 'Grant ID', 'Category'):
-                df_base.loc[idx, col] = "0"
+        if _is_empty(r.get('Date_Opened')):
+            status = 'not_opened'
+        elif not _is_empty(r.get('Date_Closed')):
+            status = 'closed'
+        else:
+            status = 'active'
+        prorate = r.get('Prorate')
+        closed = r.get('Date_Closed')
+        out[str(r['Task_Name']).strip().upper()] = {
+            'status': status,
+            'prorate': not _is_empty(prorate) and int(prorate) == 1,
+            'description': _text(r.get('Task_Name_Description')),
+            'task_name': _text(r.get('WD_TaskName')),
+            'grant_id': _text(r.get('WD_GrantID')),
+            'closed': None if _is_empty(closed) else pd.Timestamp(closed).strftime('%Y-%m-%d'),
+        }
+    return out
 
-    # ── 2) Identificar proyectos cerrados ──
-    removed, drop_idx = [], []
-    for idx in df_base.index:
-        code = df_base.loc[idx, 'Code']
-        if is_special_code(code):
+
+def catalog(task_details_path: str) -> pd.DataFrame:
+    """
+    Todos los códigos conocidos (base global + internos XX) con las columnas que
+    usan outlook.build_timesheet y el prorrateo: Code, Description, Task Name,
+    Grant ID, Category, Include.
+    """
+    rows = [{'Code': code, 'Description': name, 'Task Name': name, 'Grant ID': '-'}
+            for code, name in INTERNAL_CODES.items()]
+    df = pd.read_excel(task_details_path)
+    for _, r in df.iterrows():
+        if _is_empty(r.get('Task_Name')):
             continue
-        if code == -1:
-            drop_idx.append(idx)
-        if not _is_empty(code) and code in src.index:
-            opened = src.loc[code, 'Date_Opened'] if 'Date_Opened' in src.columns else None
-            closed = src.loc[code, 'Date_Closed'] if 'Date_Closed' in src.columns else None
-            reasons = []
-            if _is_empty(opened):
-                reasons.append("No Date_Opened")
-            if not _is_empty(closed):
-                reasons.append("Has Date_Closed")
-            if reasons:
-                removed.append({
-                    'code': code,
-                    'description': df_base.loc[idx, 'Description'],
-                    'reason': ' | '.join(reasons),
-                })
-                drop_idx.append(idx)
-
-    if drop_idx:
-        df_base = df_base.drop(drop_idx).reset_index(drop=True)
-        log.info(f"Projects removed from database: {len(removed)}")
-
-    # ── 3) Escribir con una sola instancia Excel COM ──
-    _write_database_com(db_path, df_base)
-    log.info("Database updated")
-    return removed
+        rows.append({'Code': str(r['Task_Name']).strip(),
+                     'Description': _text(r.get('Task_Name_Description')),
+                     'Task Name': _text(r.get('WD_TaskName')),
+                     'Grant ID': _text(r.get('WD_GrantID'))})
+    out = pd.DataFrame(rows).drop_duplicates(subset=['Code'])
+    out['Category'] = [category_name(c, d) for c, d in zip(out['Code'], out['Description'])]
+    out['Include'] = 1
+    return out[CATALOG_COLUMNS].reset_index(drop=True)
 
 
-def _write_database_com(db_path: str, df_base: pd.DataFrame):
-    import win32com.client  # solo Windows
+def extract_codes(text: str, status: dict) -> Tuple[List[str], List[str]]:
+    """
+    Códigos escritos libremente ("trabajo en of0104, FS3602A y SE32") →
+    (conocidos en la base global, con forma de código pero inexistentes).
+    """
+    known, unknown = [], []
+    for token in re.split(r"[\s,;/|]+", text.upper()):
+        token = token.strip(".:()[]\"'¿?¡!")
+        if not token or token in known or token in unknown or is_special_code(token):
+            continue
+        if token in status:
+            known.append(token)
+        elif CODE_RE.match(token):
+            unknown.append(token)
+    return known, unknown
 
-    xl, wb = None, None
-    try:
-        xl = win32com.client.Dispatch("Excel.Application")
-        xl.Visible = False
-        xl.DisplayAlerts = False
-        try:
-            wb = xl.Workbooks.Open(db_path, Password=DB_PASSWORD)
-        except Exception:
-            wb = xl.Workbooks.Open(db_path)
 
-        ws = wb.Worksheets(DB_SHEET)
-        was_protected = ws.ProtectContents
-        if was_protected:
-            ws.Unprotect(DB_PASSWORD)
+def legacy_codes(xlsx_path: str) -> List[str]:
+    """Códigos del Excel de proyectos antiguo (Include = 1, sin XX) para importarlos una vez."""
+    df = pd.read_excel(xlsx_path, sheet_name=LEGACY_DB_SHEET)
+    if 'Include' in df.columns:
+        df = df[pd.to_numeric(df['Include'], errors='coerce').fillna(1) == 1]
+    out = []
+    for c in df['Code']:
+        if _is_empty(c) or isinstance(c, (int, float)) or is_special_code(c):
+            continue
+        code = str(c).strip().upper()
+        if code not in out:
+            out.append(code)
+    return out
 
-        for idx, row in df_base.iterrows():
-            r = idx + 2  # +1 encabezado, +1 base 1
-            ws.Cells(r, 1).Value = row['Code']
-            ws.Cells(r, 2).Value = row['Description']
-            ws.Cells(r, 3).Value = row['Task Name']
-            ws.Cells(r, 4).Value = row['Grant ID']
-            ws.Cells(r, 5).Value = row['Category']
-            if 'Include' in df_base.columns:
-                ws.Cells(r, 6).Value = row['Include']
 
-        last_row = ws.UsedRange.Rows.Count
-        rows_needed = len(df_base) + 1
-        for r in range(last_row, rows_needed, -1):
-            ws.Rows(r).Delete()
-
-        if was_protected:
-            ws.Protect(DB_PASSWORD)
-
-        wb.Save()
-        xl.CalculateUntilAsyncQueriesDone()
-        wb.Save()
-        wb.Close()
-        wb = None
-    except Exception:
-        try:
-            if wb is not None:
-                wb.Close(SaveChanges=False)
-        except Exception:
-            pass
-        raise
-    finally:
-        if xl is not None:
-            try:
-                xl.Quit()
-            except Exception as e:
-                log.warning(f"Error releasing Excel COM: {e}")
+def find_task(task_details_path: str, code: str) -> Optional[dict]:
+    """Un código de la base global (None si no existe)."""
+    return task_status(task_details_path).get(str(code).strip().upper())

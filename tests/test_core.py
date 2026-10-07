@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import n4w, outlook, prorate, timesheet  # noqa: E402
+from core import analysis, database, n4w, outlook, prorate, timesheet  # noqa: E402
 from core.workday.csv_reader import format_hours, parse_csv  # noqa: E402
 
 
@@ -116,3 +116,124 @@ def test_workday_reads_generated_csv(tmp_path):
     assert weeks['2026-10-04'][0]['hours']['05-10-2026'] == 2.5
     assert weeks['2026-10-11'][0]['hours'] == {'11-10-2026': 0.0}
     assert format_hours(2.5) == "2,5"
+
+
+# ── análisis e historial ─────────────────────────────────────
+
+from core import analysis  # noqa: E402
+from core.history import History  # noqa: E402
+
+
+def wide(month_days, rows):
+    """rows: {code: horas por día} → timesheet ancho para los días dados."""
+    df = pd.DataFrame({'Code': list(rows), 'Task Name': [f"{c} task" for c in rows]})
+    for d in month_days:
+        df[f"{d} 00:00:00"] = list(rows.values())
+    return df
+
+
+def test_balance_by_project_and_expected_hours():
+    df = analysis.to_long(wide(['2026-10-05', '2026-10-06'], {'A': 6.0, 'B': 2.0}))
+    table = analysis.by_project(df)
+    assert table.loc['A', 'Hours'] == 12 and table.loc['A', '%'] == 75.0 and table.loc['A', 'Days'] == 2
+    text = analysis.balance_text(df, datetime(2026, 10, 5), datetime(2026, 10, 6))
+    assert "TOTAL: 16 h" in text and "expected: 16 h" in text
+
+
+def test_history_prefers_prorated_and_replaces_period(tmp_path):
+    store = History(str(tmp_path / "h.db"))
+    store.save(wide(['2026-10-05'], {'A': 6.0, 'V': 2.0}), 'outlook')
+    assert set(store.hours('2026-10-01', '2026-10-31')['code']) == {'A', 'V'}
+    store.save(wide(['2026-10-05'], {'A': 8.0}), 'prorated')
+    assert store.hours('2026-10-01', '2026-10-31')[['code', 'hours']].values.tolist() == [['A', 8.0]]
+    store.save(wide(['2026-10-05'], {'A': 4.0}), 'outlook')      # releer reemplaza
+    store.clear('2026-10-01', '2026-10-31', 'prorated')
+    assert store.hours('2026-10-01', '2026-10-31')['hours'].sum() == 4.0
+
+
+def test_targets_merge(tmp_path):
+    store = History(str(tmp_path / "h.db"))
+    store.set_target('A', pct=30)
+    store.set_target('A', hours=40)
+    assert store.targets() == {'A': {'pct': 30.0, 'hours': 40.0}}
+
+
+def test_averages_count_missing_months_as_zero():
+    df = pd.concat([analysis.to_long(wide(['2026-08-03'], {'A': 8.0})),
+                    analysis.to_long(wide(['2026-09-01'], {'A': 4.0, 'B': 4.0}))])
+    avg = analysis.project_averages(df)
+    assert avg.loc['A', 'Avg h'] == 6.0 and avg.loc['B', 'Avg h'] == 2.0
+    assert avg.loc['B', 'Avg %'] == 25.0
+
+
+def test_alerts_target_total_and_new_project():
+    prev = analysis.to_long(wide(['2026-09-01'], {'A': 8.0}))
+    cur = analysis.to_long(wide(['2026-10-05'], {'A': 2.0, 'N': 4.0}))
+    notes = analysis.alerts(cur, datetime(2026, 10, 5), datetime(2026, 10, 5), prev,
+                            {'A': {'pct': 80.0, 'hours': None}})
+    text = "\n".join(notes)
+    assert "below the expected 8 h" in text
+    assert "A: 33.3% of the period vs target 80%" in text
+    assert "N: new project" in text
+
+
+def test_prorate_comparison_stats():
+    before = wide(['2026-10-05'], {'A': 6.0, 'V': 2.0})
+    after = wide(['2026-10-05'], {'A': 8.0})
+    text = analysis.prorate_comparison(before, after, ['V'])
+    assert "TOTAL: 8 h → 8 h" in text and "Redistributed: 2 h from V to 1 project(s)" in text
+
+
+# ── base global y mis proyectos ──────────────────────────────
+
+def _details(tmp_path):
+    path = tmp_path / "details.xlsx"
+    pd.DataFrame({
+        'Task_Name': ['OF0104', 'FS3602A', 'SE2701', 'VI0001'],
+        'Task_Name_Description': ['Overhead', 'Meta Ohio', 'Allegheny', 'Virtual'],
+        'WD_TaskName': ['OF T', 'FS T', 'SE T', 'VI T'],
+        'WD_GrantID': ['G1', 'G2', 'G3', 'G4'],
+        'Date_Opened': ['2020-01-01', '2025-01-01', '2024-07-01', '2020-01-01'],
+        'Date_Closed': [None, None, '2025-03-31', None],
+        'Prorate': [0, 0, 0, 1],
+    }).to_excel(path, index=False)
+    return str(path)
+
+
+def test_task_status_and_catalog(tmp_path):
+    path = _details(tmp_path)
+    status = database.task_status(path)
+    assert status['SE2701']['status'] == 'closed' and status['SE2701']['closed'] == '2025-03-31'
+    assert status['VI0001']['prorate'] and status['FS3602A']['description'] == 'Meta Ohio'
+    cat = database.catalog(path).set_index('Code')
+    assert cat.loc['FS3602A', 'Category'] == 'FS3602A | Meta Ohio'
+    assert cat.loc['XX09', 'Task Name'] == 'Vacation (Days)'       # internos siempre presentes
+
+
+def test_extract_codes_from_free_text(tmp_path):
+    status = database.task_status(_details(tmp_path))
+    known, unknown = database.extract_codes("trabajo en of0104, FS3602A y AB1234; también XX01.", status)
+    assert known == ['OF0104', 'FS3602A'] and unknown == ['AB1234']
+
+
+def test_review_projects_rules():
+    status = {'A1000': {'status': 'active'}, 'B2000': {'status': 'closed', 'closed': '2026-08-31'},
+              'C3000': {'status': 'active'}, 'D4000': {'status': 'active'}}
+    hist = pd.DataFrame({'day': ['2026-08-03', '2026-09-01'], 'code': ['A1000', 'A1000'],
+                         'task_name': ['', ''], 'hours': [8.0, 8.0]})
+    charged = pd.DataFrame({'day': ['2026-09-01'], 'code': ['D4000'], 'task_name': [''], 'hours': [4.0]})
+    props = analysis.review_projects(['A1000', 'B2000', 'C3000', 'Z9999'], status, hist, charged, 2,
+                                     {'C3000': '2026-01-01'})
+    got = {(p['code'], p['reason']) for p in props}
+    assert got == {('B2000', 'closed'), ('C3000', 'idle'), ('Z9999', 'missing'), ('D4000', 'unlisted')}
+
+
+def test_workday_picks_best_matching_option():
+    from core.workday.matching import best_option, option_task
+    labels = ['PRJ005611 MS Sound Coffee Island-US-AL > Marco de referencia > Admin (Comienza el: 01/07/2010)',
+              'PRJ005746 N4W Implementation Support-PFW > Marco de referencia > IS General Admin '
+              '(Comienza el: 01/08/2023)']
+    assert option_task(labels[1]) == 'IS General Admin'
+    assert best_option('IS General Admin', labels) == (1, 1.0)
+    idx, score = best_option('IS General Admn', labels)            # sin coincidencia exacta
+    assert idx == 1 and score < 1.0

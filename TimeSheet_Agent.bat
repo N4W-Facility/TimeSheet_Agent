@@ -25,7 +25,7 @@ set "OLLAMA_INSTALLER=%TEMP%\OllamaSetup.exe"
 set "OLLAMA_DIR=%LOCALAPPDATA%\Programs\Ollama"
 set "OLLAMA_EXE="
 set "OLLAMA_API=http://127.0.0.1:11434/api/version"
-set "MODEL=qwen3:8b"
+set "MODEL=qwen3:4b"
 if defined TSA_OLLAMA_MODEL set "MODEL=%TSA_OLLAMA_MODEL%"
 
 if not exist "%TSA_HOME%" mkdir "%TSA_HOME%"
@@ -160,7 +160,7 @@ if not errorlevel 1 (
     echo      Model %MODEL% ready.
     goto :RUN_APP
 )
-echo      Downloading model %MODEL% - first time only, about 5 GB...
+echo      Downloading model %MODEL% - first time only, about 2.5 GB...
 "!OLLAMA_EXE!" pull %MODEL%
 if errorlevel 1 (
     set "ERR=Could not download model %MODEL%."
