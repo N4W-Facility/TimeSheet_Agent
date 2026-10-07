@@ -52,7 +52,10 @@ OLLAMA_HOST = os.environ.get("TSA_OLLAMA_HOST", "http://localhost:11434")
 # qwen3:4b: el LLM solo clasifica la frase → modelo liviano que corre aceptable sin GPU.
 # Comparar modelos con: python eval_intents.py qwen3:1.7b qwen3:4b qwen3:8b
 OLLAMA_MODEL = os.environ.get("TSA_OLLAMA_MODEL", "qwen3:4b")
-OLLAMA_NUM_CTX = 4096
+OLLAMA_NUM_CTX = 4096          # cada llamada usa ~1.300 tokens (prompt + 6 turnos cortos)
+OLLAMA_NUM_PREDICT = 512       # tope de salida; el JSON ocupa ~150 tokens
+OLLAMA_KEEP_ALIVE = "30m"      # modelo cargado en memoria entre mensajes
+OLLAMA_TIMEOUT = 60            # segundos; si Ollama no responde, el agente avisa
 
 # ── Historial y análisis (memoria mes a mes) ─────────────────
 APP_HOME = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "TimeSheetAgent")

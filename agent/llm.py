@@ -124,12 +124,14 @@ def list_models() -> list:
 
 def _client():
     from ollama import Client
-    return Client(host=config.OLLAMA_HOST)
+    return Client(host=config.OLLAMA_HOST, timeout=config.OLLAMA_TIMEOUT)
 
 
 def _chat(messages: list, fmt=None, model: str = None) -> str:
     kwargs = dict(model=model or current_model(), messages=messages,
-                  options={"temperature": 0, "num_ctx": config.OLLAMA_NUM_CTX})
+                  keep_alive=config.OLLAMA_KEEP_ALIVE,
+                  options={"temperature": 0, "num_ctx": config.OLLAMA_NUM_CTX,
+                           "num_predict": config.OLLAMA_NUM_PREDICT})
     if fmt is not None:
         kwargs["format"] = fmt
     client = _client()
@@ -151,6 +153,14 @@ def check_ollama() -> tuple:
     if not any(n == wanted or n.split(":")[0] == wanted for n in names if n):
         return False, f"Model '{wanted}' not installed. Run: ollama pull {wanted}"
     return True, wanted
+
+
+def warm_up():
+    """Carga el modelo en memoria (sin generar) para que el primer mensaje no espere."""
+    try:
+        _client().generate(model=current_model(), prompt="", keep_alive=config.OLLAMA_KEEP_ALIVE)
+    except Exception as e:
+        log.debug(f"warm-up failed: {e}")
 
 
 def _clean_code(value) -> Optional[str]:

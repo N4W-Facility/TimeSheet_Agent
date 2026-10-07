@@ -480,6 +480,8 @@ class ChatApp:
         self.root.after(0, lambda: self.lbl_model.configure(text_color=color))
         if not ok:
             self.say(f"⚠ {msg}")
+        else:
+            llm.warm_up()
 
     def _model_menu(self, event):
         menu = tk.Menu(self.root, tearoff=0, bg=CARD_BG, fg=TEXT, activebackground=BORDER,
