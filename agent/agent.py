@@ -649,7 +649,8 @@ class Agent:
             self._guard_upload(df, loaded.start)
             pipe._approve(f"Fill Workday {loaded.label} with these hours ({source})?",
                           analysis.balance_text(df, loaded.start, loaded.end, config.EXPECTED_DAILY_HOURS))
-            pipe.fill_workday(csv_path)
+            if not self._fill(pipe, csv_path):
+                return
             self.store.log_event(loaded.start, loaded.end, 'workday')
             loaded.workday_done = True
             self.ui.say(self.m("workday_done", period=loaded.label, a=self.p("n4w", loaded.start),
@@ -665,9 +666,22 @@ class Agent:
         self._guard_upload(week, loaded.start)
         pipe._approve(f"Fill Workday week {label} with these hours ({source})?",
                       analysis.balance_text(week, start, end, config.EXPECTED_DAILY_HOURS))
-        pipe.fill_workday(csv_path, weeks_only=[f"{sunday:%Y-%m-%d}"])
+        if not self._fill(pipe, csv_path, weeks_only=[f"{sunday:%Y-%m-%d}"]):
+            return
         self.store.log_event(start, end, 'workday')
         self.ui.say(self.m("workday_week_done", period=label))
+
+    def _fill(self, pipe, csv_path, weeks_only=None) -> bool:
+        """Llena Workday; Guardar cada semana es irreversible → tarjeta roja. False si no se guardó."""
+        save = lambda msg: self.ui.confirm_send(
+            self.m("workday_save_title"), msg, self.m("workday_save_warning"),
+            self.m("workday_save_ok"), self.m("workday_save_cancel"))
+        try:
+            pipe.fill_workday(csv_path, weeks_only=weeks_only, confirm_week=save)
+        except Cancelled:
+            self.ui.say(self.m("workday_not_saved"))
+            return False
+        return True
 
     def do_submit_n4w(self, intent):
         pipe = self._pipeline()

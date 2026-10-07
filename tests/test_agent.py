@@ -134,7 +134,9 @@ class FakePipe:
     def _approve(self, title, detail):
         self.approved.append(title)
 
-    def fill_workday(self, csv_path, weeks_only=None):
+    def fill_workday(self, csv_path, weeks_only=None, confirm_week=None):
+        if confirm_week and not confirm_week("Week 1/1  —  start: ..."):
+            raise Cancelled("Workday week not saved")
         self.filled = csv_path
         self.weeks_only = weeks_only
 
@@ -581,3 +583,20 @@ def test_n4w_send_needs_explicit_confirmation(env):
     ui.send_ok = True
     reply = send("submit_n4w", start_date="2026-09-07", end_date="2026-09-27", language="es")
     assert pipe.submitted and "enviado" in reply
+
+
+def test_workday_save_needs_red_confirmation(env):
+    agent, ui, pipe, send = env
+    agent.lang = "es"
+    send("read_hours", month="2026-09", language="es")
+    send("prorate", month="2026-09", language="es")
+    ui.send_ok = False
+    reply = send("fill_workday", month="2026-09", language="es")
+    title, _, warning, ok, cancel = ui.sends[-1]
+    assert "Guardar" in title and "Workday" in warning and ok == "Guardar en Workday" and cancel == "No guardar"
+    assert pipe.filled is None and "no se guardó" in reply
+    assert 'workday' not in set(agent.store.events(datetime(2026, 9, 1), datetime(2026, 9, 30))['step'])
+
+    ui.send_ok = True
+    send("fill_workday", month="2026-09", language="es")
+    assert pipe.filled

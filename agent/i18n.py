@@ -100,6 +100,26 @@ MESSAGES = {
         "es": "No hay horas para llenar en la semana {period}.",
         "pt": "Não há horas para preencher na semana {period}.",
     },
+    "workday_save_title": {
+        "en": "Save this week in Workday?",
+        "es": "¿Guardar esta semana en Workday?",
+        "pt": "Salvar esta semana no Workday?",
+    },
+    "workday_save_warning": {
+        "en": "⚠ Saving records these hours in Workday. Check the Chrome table before saving.",
+        "es": "⚠ Guardar registra estas horas en Workday. Revisa la tabla en Chrome antes de guardar.",
+        "pt": "⚠ Salvar registra estas horas no Workday. Confira a tabela no Chrome antes de salvar.",
+    },
+    "workday_save_ok": {"en": "Save in Workday", "es": "Guardar en Workday", "pt": "Salvar no Workday"},
+    "workday_save_cancel": {"en": "Don't save", "es": "No guardar", "pt": "Não salvar"},
+    "workday_not_saved": {
+        "en": "That week was not saved in Workday (weeks saved before it stay saved). "
+              "In Chrome you can review or discard the unsaved changes.",
+        "es": "Esa semana no se guardó en Workday (las semanas guardadas antes siguen guardadas). "
+              "En Chrome puedes revisar o descartar los cambios sin guardar.",
+        "pt": "Essa semana não foi salva no Workday (as semanas salvas antes continuam salvas). "
+              "No Chrome você pode revisar ou descartar as alterações não salvas.",
+    },
     "n4w_send_title": {
         "en": "Submit these hours to N4W Facility? ({period})",
         "es": "¿Enviar estas horas a N4W Facility? ({period})",

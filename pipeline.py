@@ -236,11 +236,13 @@ class Pipeline:
                              "read the period again:\n" + analysis.invalid_text(issues))
 
     # ── Workday ──────────────────────────────────────────────
-    def fill_workday(self, csv_path: str, confirm_each_week: bool = True, weeks_only: list = None):
+    def fill_workday(self, csv_path: str, confirm_each_week: bool = True, weeks_only: list = None,
+                     confirm_week: Callable[[str], bool] = None):
         """
         Requiere Chrome con CDP y sesión iniciada; la automatización llega sola
         a la tabla 'Enter Time by Type' de la primera semana.
         weeks_only: domingos 'YYYY-MM-DD' a llenar (None = todas las del CSV).
+        confirm_week(detalle) decide si se guarda cada semana; si no → Cancelled.
         """
         from core.workday.automation import WorkdayAutomation
         from core.workday.browser_launcher import is_cdp_running, launch_chrome
@@ -263,8 +265,15 @@ class Pipeline:
             "The assistant will open the week starting "
             f"{next(iter(weeks))} (Sunday) by itself.\n\nApprove when you are signed in.")
 
-        confirm = ((lambda msg: self.cb.approve("Save this week?", msg))
-                   if confirm_each_week else (lambda msg: True))
+        ask = confirm_week or (lambda msg: self.cb.approve("Save this week?", msg))
+
+        def confirm(msg):
+            if not confirm_each_week:
+                return True
+            if not ask(msg):
+                raise Cancelled("Workday week not saved")
+            return True
+
         auto = WorkdayAutomation(log_callback=self.cb.log, confirm_callback=confirm)
         try:
             auto.connect()
