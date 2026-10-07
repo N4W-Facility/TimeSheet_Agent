@@ -6,6 +6,7 @@
 # ============================================================
 import os
 import threading
+import tkinter as tk
 from tkinter import filedialog
 
 import customtkinter as ctk
@@ -60,6 +61,7 @@ class ChatApp:
         self.root.configure(fg_color=BG)
 
         self.settings = Settings.load()
+        llm.set_model(self.settings.model)
         self.agent = Agent(ui=self, settings=self.settings)
         self.busy = False
         self.log_visible = False
@@ -94,9 +96,11 @@ class ChatApp:
                       fg_color=CARD_BG, hover_color=BORDER, border_color=BORDER,
                       border_width=1, corner_radius=6,
                       command=self._open_settings).pack(side="right", padx=(8, 0))
-        self.lbl_model = ctk.CTkLabel(right, text=f"●  {config.OLLAMA_MODEL}",
-                                      font=(FONT, 11), text_color=MUTED)
+        # Clic en el modelo → elegir otro instalado en Ollama (opción discreta)
+        self.lbl_model = ctk.CTkLabel(right, text=f"●  {llm.current_model()}",
+                                      font=(FONT, 11), text_color=MUTED, cursor="hand2")
         self.lbl_model.pack(side="right")
+        self.lbl_model.bind("<Button-1>", self._model_menu)
 
         # Barra inferior (se empaqueta antes del chat para reservar espacio)
         bottom = ctk.CTkFrame(self.root, fg_color="transparent")
@@ -476,6 +480,27 @@ class ChatApp:
         self.root.after(0, lambda: self.lbl_model.configure(text_color=color))
         if not ok:
             self.say(f"⚠ {msg}")
+
+    def _model_menu(self, event):
+        menu = tk.Menu(self.root, tearoff=0, bg=CARD_BG, fg=TEXT, activebackground=BORDER,
+                       activeforeground=TEXT, bd=0, font=(FONT, 10))
+        current = llm.current_model()
+        models = llm.list_models() or [current]
+        if config.OLLAMA_MODEL not in models:
+            models.insert(0, config.OLLAMA_MODEL)
+        for name in models:
+            label = f"{'✓' if name == current else '   '}  {name}"
+            if name == config.OLLAMA_MODEL:
+                label += "   (default)"
+            menu.add_command(label=label, command=lambda n=name: self._set_model(n))
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _set_model(self, name: str):
+        self.settings.model = "" if name == config.OLLAMA_MODEL else name
+        self.settings.save()
+        llm.set_model(self.settings.model)
+        self.lbl_model.configure(text=f"●  {llm.current_model()}", text_color=MUTED)
+        threading.Thread(target=self._check_ollama, daemon=True).start()
 
     # ── Ajustes ──────────────────────────────────────────────
 

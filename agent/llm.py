@@ -101,13 +101,34 @@ class Intent:
     months_back: Optional[int] = None
 
 
+_model = ""   # elegido por el usuario en la UI; vacío → config.OLLAMA_MODEL
+
+
+def set_model(name: str):
+    global _model
+    _model = name or ""
+
+
+def current_model() -> str:
+    return _model or config.OLLAMA_MODEL
+
+
+def list_models() -> list:
+    """Modelos instalados en Ollama (vacío si no responde)."""
+    try:
+        models = _client().list()["models"]
+    except Exception:
+        return []
+    return sorted(n for n in (m.get("model") or m.get("name") for m in models) if n)
+
+
 def _client():
     from ollama import Client
     return Client(host=config.OLLAMA_HOST)
 
 
 def _chat(messages: list, fmt=None, model: str = None) -> str:
-    kwargs = dict(model=model or config.OLLAMA_MODEL, messages=messages,
+    kwargs = dict(model=model or current_model(), messages=messages,
                   options={"temperature": 0, "num_ctx": config.OLLAMA_NUM_CTX})
     if fmt is not None:
         kwargs["format"] = fmt
@@ -126,7 +147,7 @@ def check_ollama() -> tuple:
         names = [m.get("model") or m.get("name") for m in models["models"]]
     except Exception as e:
         return False, f"Ollama not reachable at {config.OLLAMA_HOST} ({e})"
-    wanted = config.OLLAMA_MODEL
+    wanted = current_model()
     if not any(n == wanted or n.split(":")[0] == wanted for n in names if n):
         return False, f"Model '{wanted}' not installed. Run: ollama pull {wanted}"
     return True, wanted

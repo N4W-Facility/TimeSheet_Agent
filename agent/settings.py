@@ -13,13 +13,14 @@ class Settings:
     email: str = ""
     db_path: str = ""       # Excel de proyectos antiguo: solo para importar sus códigos una vez
     language: str = ""      # último idioma del usuario (saludo y sugerencias)
+    model: str = ""         # modelo Ollama elegido a mano; vacío → config.OLLAMA_MODEL
 
     @classmethod
     def load(cls) -> "Settings":
         try:
             with open(SETTINGS_PATH, encoding="utf-8") as f:
                 data = json.load(f)
-            return cls(**{k: data.get(k, "") for k in ("db_path", "email", "language")})
+            return cls(**{k: data.get(k, "") for k in ("db_path", "email", "language", "model")})
         except (OSError, ValueError):
             return cls()
 

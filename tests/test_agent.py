@@ -513,3 +513,14 @@ def test_categorize_meetings_suggests_and_assigns(env):
     assert [r['default'] for r in rows] == ['P100', None]          # sugerido por el asunto en septiembre
     assert pipe.assigned == [('Weekly sync', 2, 'P100')]
     assert ui.said[-1].startswith("✓ 2 meetings categorized") and "(1 still without category)" in ui.said[-1]
+
+
+def test_model_override_defaults_to_config(monkeypatch):
+    from agent import llm
+    import config
+    llm.set_model("")
+    assert llm.current_model() == config.OLLAMA_MODEL
+    llm.set_model("qwen3:8b")
+    assert llm.current_model() == "qwen3:8b"
+    llm.set_model("")
+    assert llm.current_model() == config.OLLAMA_MODEL
