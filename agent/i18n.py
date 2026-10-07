@@ -159,6 +159,7 @@ MESSAGES = {
                "🌴 6 · LEAVE & HOLIDAYS — mark each day off in Outlook as an 8 h block\n"
                "   with an XX category (XX05 holiday, XX09 vacation, XX08 sick…).\n"
                "   N4W gets 8 h, Workday gets 1 day, and I warn you about forgotten holidays.\n\n"
+               "🧹 Clean screen: “clear chat” or the 🗑 button (your hours and history stay).\n\n"
                "🔒 Everything runs on your PC (local AI model). Write naturally, in English,\n"
                "   Spanish or Portuguese."),
         "es": ("Soy tu asistente de horas del equipo N4W Facility: paso tu calendario\n"
@@ -177,6 +178,7 @@ MESSAGES = {
                "🌴 6 · LICENCIAS Y FESTIVOS — marca cada día libre en Outlook como bloque\n"
                "   de 8 h con una categoría XX (XX05 festivo, XX09 vacaciones, XX08 enfermedad…).\n"
                "   N4W recibe 8 h, Workday 1 día, y te aviso si olvidaste un festivo.\n\n"
+               "🧹 Pantalla limpia: “borra el chat” o el botón 🗑 (tus horas e historial quedan).\n\n"
                "🔒 Todo corre en tu PC (modelo de IA local). Escríbeme natural, en español,\n"
                "   inglés o portugués."),
         "pt": ("Sou seu assistente de horas da equipe N4W Facility: levo seu calendário\n"
@@ -195,6 +197,7 @@ MESSAGES = {
                "🌴 6 · LICENÇAS E FERIADOS — marque cada dia de folga no Outlook como bloco\n"
                "   de 8 h com uma categoria XX (XX05 feriado, XX09 férias, XX08 doença…).\n"
                "   O N4W recebe 8 h, o Workday 1 dia, e eu aviso se você esqueceu um feriado.\n\n"
+               "🧹 Tela limpa: “limpa o chat” ou o botão 🗑 (suas horas e histórico ficam).\n\n"
                "🔒 Tudo roda no seu PC (modelo de IA local). Escreva naturalmente, em português,\n"
                "   espanhol ou inglês."),
     },

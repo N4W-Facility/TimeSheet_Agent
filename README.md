@@ -25,6 +25,7 @@ Write to it the way you would write to a colleague, in **English, Spanish or Por
 | 🎯 | **Dedication goals** per project | *"my dedication to OF0104 should be 30%"* |
 | 📁 | **My projects**: add or remove them, checked against the global N4W project list | *"which are my projects?"*, *"I no longer work on OF0104"* |
 | 🌴 | **Leave & public holidays** (see below) | *"am I ready to close November?"* warns about a forgotten holiday |
+| 🧹 | **Clear the chat** (or the 🗑 button). Your hours, projects and history are kept | *"clear chat"*, *"borra el chat"* |
 
 The header shows your progress: **① Read → ② Prorate → ③ Workday · ④ N4W**.
 
