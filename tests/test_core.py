@@ -326,3 +326,13 @@ def test_categorize_groups_and_suggestions():
     hist = [e('Weekly sync', 1, 1, 'P100 | Old name'), e('Weekly sync', 2, 1, 'P100 | Old name, Personal'),
             e('Weekly sync', 3, 1, 'P200 | Other'), e('Lunch', 3, 1, 'Personal')]
     assert categorize.suggestions(hist, ['P100 | Project', 'P300 | Other']) == {'Weekly sync': 'P100 | Project'}
+
+
+def test_n4w_summary_lists_rows_and_total():
+    ts = pd.DataFrame({'Code': ['P100', 'P200'], 'Task Name': ['', ''], 'Grant ID': ['', ''],
+                       '2026-10-05 00:00:00': [8, 0], '2026-10-06 00:00:00': [4.5, 3]})
+    text = n4w.n4w_summary(n4w.build_n4w_rows(ts, 'a@b.org', 'A', {}))
+    lines = text.splitlines()
+    assert lines[0].split()[:2] == ['Week', 'Project'] and len(lines) == 4
+    assert '2026-10-05' in lines[1] and '12.5' in lines[1]
+    assert lines[-1].split() == ['TOTAL', '15.5']

@@ -29,6 +29,7 @@ GREEN      = "#22c55e"
 GREEN_HOV  = "#16a34a"
 AMBER      = "#f59e0b"
 RED        = "#ef4444"
+RED_HOV    = "#dc2626"
 INPUT_BG   = "#18181b"
 LOG_BG     = "#0d0d0d"
 LOG_FG     = "#00ff88"
@@ -268,12 +269,12 @@ class ChatApp:
                      wraplength=WRAP, justify="left").pack(anchor="w", padx=14, pady=(10, 6))
         return card
 
-    def _buttons(self, card, ok_text, ok_color, ok_hover, on_ok, on_cancel):
+    def _buttons(self, card, ok_text, ok_color, ok_hover, on_ok, on_cancel, cancel_text="Cancel"):
         row = ctk.CTkFrame(card, fg_color="transparent")
         row.pack(fill="x", padx=14, pady=(6, 12))
         ok = ctk.CTkButton(row, text=ok_text, width=110, height=32, font=(FONT, 12, "bold"),
                            fg_color=ok_color, hover_color=ok_hover, corner_radius=6)
-        cancel = ctk.CTkButton(row, text="Cancel", width=90, height=32, font=(FONT, 12),
+        cancel = ctk.CTkButton(row, text=cancel_text, width=90, height=32, font=(FONT, 12),
                                fg_color=BORDER, hover_color="#3f3f46", text_color=TEXT,
                                corner_radius=6)
         ok.pack(side="right")
@@ -368,6 +369,18 @@ class ChatApp:
             self._detail_box(card, detail)
             self._buttons(card, "Approve ✓", GREEN, GREEN_HOV,
                           lambda: done(True), lambda: done(False))
+            self._scroll_bottom()
+        return bool(self._wait(build))
+
+    def confirm_send(self, title: str, detail: str, warning: str, ok: str, cancel: str) -> bool:
+        """Tarjeta roja para acciones irreversibles (envío): aviso explícito y botón rojo."""
+        def build(done):
+            card = self._card(title, RED)
+            self._detail_box(card, detail)
+            ctk.CTkLabel(card, text=warning, font=(FONT, 12, "bold"), text_color=RED,
+                         wraplength=WRAP, justify="left").pack(anchor="w", padx=14)
+            self._buttons(card, ok, RED, RED_HOV, lambda: done(True), lambda: done(False),
+                          cancel_text=cancel)
             self._scroll_bottom()
         return bool(self._wait(build))
 

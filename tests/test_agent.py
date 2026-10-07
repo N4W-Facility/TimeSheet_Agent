@@ -32,6 +32,10 @@ class FakeUI:
             return self.choice(d)
         return list(d.preselected) if d.multi else None
     def approve(self, title, detail): return True
+    send_ok = True
+    def confirm_send(self, title, detail, warning, ok, cancel):
+        self.sends = getattr(self, 'sends', []) + [(title, detail, warning, ok, cancel)]
+        return self.send_ok
 
     def pick_file(self, title):
         self.picked = title
@@ -133,6 +137,16 @@ class FakePipe:
     def fill_workday(self, csv_path, weeks_only=None):
         self.filled = csv_path
         self.weeks_only = weeks_only
+
+    def submit_n4w(self, csv_path, start, end, confirm=None):
+        """Mismo contrato que Pipeline.submit_n4w: sin confirmación no se copia a OneDrive."""
+        from core import n4w
+        rows = n4w.build_n4w_rows(pd.read_csv(csv_path), 'me@tnc.org', 'Me', {})
+        local = str(self.tmp / "n4w_local.xlsx")
+        if not confirm(rows, local):
+            raise Cancelled(local)
+        self.submitted = local
+        return local
 
 
 @pytest.fixture
@@ -548,3 +562,22 @@ def test_fit_history_trims_oldest_to_context(monkeypatch):
     assert sum(len(m["content"]) for m in system + kept + new) <= 1000 * 0.75 * 4
     monkeypatch.setattr(config, "OLLAMA_MAX_HISTORY", 4)
     assert len(llm.fit_history(system, history, new)) <= 4
+
+
+# ── envío N4W: confirmación explícita ───────────────────────
+
+def test_n4w_send_needs_explicit_confirmation(env):
+    agent, ui, pipe, send = env
+    agent.lang = "es"
+    ui.send_ok = False
+    reply = send("submit_n4w", start_date="2026-09-07", end_date="2026-09-27", language="es")
+    title, detail, warning, ok, cancel = ui.sends[-1]
+    assert "Enviar" in title and "P100" in detail and "TOTAL" in detail
+    assert "No se puede deshacer" in warning and ok == "Enviar a N4W" and cancel == "No enviar"
+    assert not hasattr(pipe, "submitted")
+    assert "No se envió nada" in reply and "n4w_local.xlsx" in reply
+    assert 'n4w' not in set(agent.store.events(datetime(2026, 9, 7), datetime(2026, 9, 27))['step'])
+
+    ui.send_ok = True
+    reply = send("submit_n4w", start_date="2026-09-07", end_date="2026-09-27", language="es")
+    assert pipe.submitted and "enviado" in reply

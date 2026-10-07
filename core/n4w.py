@@ -135,6 +135,25 @@ def write_n4w_excel(rows: pd.DataFrame, output_path: str) -> str:
     return output_path
 
 
+def n4w_summary(rows: pd.DataFrame) -> str:
+    """Tabla de texto con lo que se envía: una línea por (semana, proyecto) y el total."""
+    days = [('Mon', 'new_monhours'), ('Tue', 'new_tuehours'), ('Wed', 'new_wedhours'),
+            ('Thu', 'new_thurshours'), ('Fri', 'new_frihours'), ('Sat', 'new_sathours'),
+            ('Sun', 'new_sunhours')]
+    h = lambda v: f"{float(v):g}" if v else "·"
+    width = max([7] + [len(str(c)) for c in rows['new_projectcode']])
+    lines = [f"{'Week':<10}  {'Project':<{width}}  " + " ".join(f"{d:>4}" for d, _ in days)
+             + f"  {'Total':>5}"]
+    for _, r in rows.iterrows():
+        lines.append(f"{pd.Timestamp(r['crd63_weekstartdate']):%Y-%m-%d}  "
+                     f"{str(r['new_projectcode']):<{width}}  "
+                     + " ".join(f"{h(r[c]):>4}" for _, c in days)
+                     + f"  {h(r['new_totalhours']):>5}")
+    lines.append(f"{'':<10}  {'TOTAL':<{width}}  {'':<{5 * len(days) - 1}}"
+                 f"  {h(rows['new_totalhours'].sum()):>5}")
+    return "\n".join(lines)
+
+
 def n4w_filename(email: str, start: datetime, end: datetime) -> str:
     return f"{email}_{start.strftime('%Y-%m-%d')}_to_{end.strftime('%Y-%m-%d')}.xlsx"
 

@@ -19,7 +19,7 @@ import config
 import workflows
 from agent import i18n, llm, suggest
 from agent.settings import Settings
-from core import analysis, categorize, charts, database, timesheet
+from core import analysis, categorize, charts, database, n4w, timesheet
 from core.history import History
 from pipeline import Callbacks, Cancelled, Decision, Pipeline
 
@@ -30,6 +30,8 @@ class AgentUI(Protocol):
     def show(self, title: str, detail: str): ...                # tarjeta informativa
     def decide(self, decision: Decision): ...                   # bloqueante
     def approve(self, title: str, detail: str) -> bool: ...     # bloqueante
+    def confirm_send(self, title: str, detail: str, warning: str,
+                     ok: str, cancel: str) -> bool: ...         # bloqueante; acción irreversible
     def pick_file(self, title: str) -> Optional[str]: ...       # explorador de archivos (bloqueante)
     def chart(self, spec: dict): ...                            # tarjeta con gráfica (core.charts)
 
@@ -684,9 +686,18 @@ class Agent:
         self._guard_upload(analysis.to_long(pd.read_csv(findings['path'])), start)
         pipe._approve(f"N4W {start:%Y-%m-%d} → {end:%Y-%m-%d}: hours OK?",
                       workflows.findings_report(findings))
-        pipe.submit_n4w(findings['path'], start, end)
+        period = f"{start:%Y-%m-%d} → {end:%Y-%m-%d}"
+        # Copiar a OneDrive = enviar a la base de N4W: confirmación explícita aparte
+        send = lambda rows, local: self.ui.confirm_send(
+            self.m("n4w_send_title", period=period), n4w.n4w_summary(rows),
+            self.m("n4w_send_warning"), self.m("n4w_send_ok"), self.m("n4w_send_cancel"))
+        try:
+            pipe.submit_n4w(findings['path'], start, end, confirm=send)
+        except Cancelled as e:
+            self.ui.say(self.m("n4w_not_sent", path=e.args[0] if e.args else ""))
+            return
         self.store.log_event(start, end, 'n4w')
-        self.ui.say(self.m("n4w_done", period=f"{start:%Y-%m-%d} → {end:%Y-%m-%d}"))
+        self.ui.say(self.m("n4w_done", period=period))
 
     def do_my_projects(self, intent):
         self._ensure_global()

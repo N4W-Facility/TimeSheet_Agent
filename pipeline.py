@@ -274,8 +274,13 @@ class Pipeline:
             auto.close()
 
     # ── N4W Facility ─────────────────────────────────────────
-    def submit_n4w(self, csv_path: str, start: datetime, end: datetime) -> str:
-        """Valida, genera el Excel N4W y lo copia a OneDrive. Devuelve la ruta destino."""
+    def submit_n4w(self, csv_path: str, start: datetime, end: datetime,
+                   confirm: Callable[[pd.DataFrame, str], bool] = None) -> str:
+        """
+        Valida, genera el Excel N4W y lo copia a OneDrive. Devuelve la ruta destino.
+        Copiar a OneDrive ES el envío: confirm(filas, excel_local) decide; si devuelve
+        False se lanza Cancelled(excel_local) y el Excel queda solo en local.
+        """
         if not self.email:
             raise ValueError("User email is required for N4W.")
         self.check_uploadable(csv_path)
@@ -308,8 +313,12 @@ class Pipeline:
         name = n4w.n4w_filename(info['email'], start, end)
         local = n4w.write_n4w_excel(rows, self._path(name))
 
-        self._approve("Submit to N4W Facility?",
-                      f"{len(rows)} rows → OneDrive/{config.N4W_ONEDRIVE_FOLDER}/{name}")
+        if confirm is None:
+            confirm = lambda rows, local: self.cb.approve(
+                "Submit to N4W Facility?",
+                f"{n4w.n4w_summary(rows)}\n\n→ OneDrive/{config.N4W_ONEDRIVE_FOLDER}/{name}")
+        if not confirm(rows, local):
+            raise Cancelled(local)
         dst = n4w.put_file_in_onedrive(local, rf"{config.N4W_ONEDRIVE_FOLDER}\{name}",
                                        account_hint=config.ONEDRIVE_ACCOUNT_HINT, overwrite=True)
         self.cb.log(f"✓ Submitted: {dst}")

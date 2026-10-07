@@ -100,6 +100,23 @@ MESSAGES = {
         "es": "No hay horas para llenar en la semana {period}.",
         "pt": "Não há horas para preencher na semana {period}.",
     },
+    "n4w_send_title": {
+        "en": "Submit these hours to N4W Facility? ({period})",
+        "es": "¿Enviar estas horas a N4W Facility? ({period})",
+        "pt": "Enviar estas horas ao N4W Facility? ({period})",
+    },
+    "n4w_send_warning": {
+        "en": "⚠ This sends your hours to the N4W database (OneDrive). It cannot be undone from here.",
+        "es": "⚠ Esto envía tus horas a la base de datos de N4W (OneDrive). No se puede deshacer desde aquí.",
+        "pt": "⚠ Isto envia suas horas para a base de dados do N4W (OneDrive). Não pode ser desfeito daqui.",
+    },
+    "n4w_send_ok": {"en": "Submit to N4W", "es": "Enviar a N4W", "pt": "Enviar ao N4W"},
+    "n4w_send_cancel": {"en": "Don't submit", "es": "No enviar", "pt": "Não enviar"},
+    "n4w_not_sent": {
+        "en": "Nothing was submitted to N4W. The file stays only on your computer: {path}",
+        "es": "No se envió nada a N4W. El archivo quedó solo en tu equipo: {path}",
+        "pt": "Nada foi enviado ao N4W. O arquivo ficou só no seu computador: {path}",
+    },
     "n4w_done": {
         "en": "✓ N4W Facility submitted ({period}).",
         "es": "✓ N4W Facility enviado ({period}).",
