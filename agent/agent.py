@@ -219,7 +219,7 @@ class Agent:
             self.do_help()
             return
         try:
-            intent = llm.parse_intent(text, self.chat_history)
+            intent = llm.parse_intent(text, self.chat_history, state=self._context())
         except Exception as e:
             self.ui.log(traceback.format_exc())
             self.ui.say(self.m("llm_down", err=e))
@@ -234,6 +234,10 @@ class Agent:
 
         if intent.action == "help":
             self.do_help()
+            return
+        if intent.action == "clarify":            # el modelo pregunta en vez de adivinar
+            if not intent.reply:
+                self.ui.say(self.m("clarify"))
             return
         if intent.action == "other":
             return
@@ -286,6 +290,28 @@ class Agent:
         if re.search(r"\b(puedes|podes|sabes|hacer|ayuda|ayudar|ayudas|que)\b", norm):
             return "es"
         return "en"
+
+    def _context(self) -> str:
+        """Estado actual para el LLM: así puede preguntar con opciones que tengan sentido."""
+        L = self.loaded
+        lines = []
+        if L:
+            done = [name for name, ok in (("prorated", L.prorated_path), ("Workday filled", L.workday_done),
+                                          ("N4W submitted", self._n4w_done(L))) if ok]
+            lines.append(f"- Period read: {period_label(L.start, L.end)}"
+                         + (f" ({', '.join(done)})" if done else " (nothing submitted yet)"))
+        else:
+            lines.append("- No period read yet in this session.")
+        mine = self.store.my_projects()
+        if mine:
+            lines.append(f"- My projects: {', '.join(mine[:15])}")
+        try:
+            tips = self.suggestions()
+        except Exception:               # el contexto es una ayuda: nunca bloquea el mensaje
+            tips = []
+        if tips:
+            lines.append(f"- Suggested next step: {tips[0]}")
+        return "\n".join(lines)
 
     @staticmethod
     def _clear_lang(text: str) -> Optional[str]:
@@ -888,11 +914,12 @@ class Agent:
 
     def do_remove_project(self, intent):
         self._ensure_global()
+        mine = self.store.my_projects()
+        if not any(database.extract_codes(self.text, self.status)):   # código sacado del historial: preguntar
+            raise NeedInfo(self.m("which_remove", codes=", ".join(mine)) if mine else self.m("need_codes"))
         known, unknown = self._codes_in_text(intent)
         codes = known + unknown
-        if not codes:
-            raise NeedInfo(self.m("need_codes"))
-        mine = set(self.store.my_projects())
+        mine = set(mine)
         notes = [self.m("frag_not_mine", code=c) for c in codes if c not in mine]
         if notes:
             self.ui.say(self.m("codes_checked", details="; ".join(notes)))

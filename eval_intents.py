@@ -116,6 +116,11 @@ CASES = [
     ("what can you do?", "help", {}),
     ("¿qué funciones tienes?", "help", {}),          # sin atajo: lo clasifica el LLM
     ("quais são as suas funções?", "help", {}),
+    # ambiguo → preguntar (clarify), nunca adivinar
+    ("borrar", "clarify", {}),
+    ("delete", "clarify", {}),
+    ("cámbialo", "clarify", {}),
+    ("apagar", "clarify", {}),
     ("¿cuál es la capital de Francia?", "other", {}),
     ("escribe un poema", "other", {}),
     # pedir todo junto → debe ser UN paso, nunca varios

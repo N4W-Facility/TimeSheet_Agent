@@ -172,7 +172,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(agent, "_pipeline", lambda: pipe)
 
     def send(action, **kw):
-        monkeypatch.setattr(llm, "parse_intent", lambda t, h: _intent(action, **kw))
+        monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent(action, **kw))
         agent.handle("...")
         return ui.said[-1] if ui.said else ""
     return agent, ui, pipe, send
@@ -180,7 +180,7 @@ def env(tmp_path, monkeypatch):
 
 def test_agent_help_needs_no_settings(monkeypatch):
     monkeypatch.setattr(Settings, "save", lambda self: None)
-    monkeypatch.setattr(llm, "parse_intent", lambda t, h: _intent("help", reply="I can read hours"))
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent("help", reply="I can read hours"))
     ui = FakeUI()
     agent_mod.Agent(ui, Settings()).handle("what can you do?")
     assert ui.cards[-1][0] == "What I can do" and len(ui.said) == 1
@@ -188,7 +188,7 @@ def test_agent_help_needs_no_settings(monkeypatch):
 
 def test_read_without_projects_asks_for_codes(tmp_path, monkeypatch):
     monkeypatch.setattr(Settings, "save", lambda self: None)
-    monkeypatch.setattr(llm, "parse_intent", lambda t, h: _intent("read_hours", month="2026-09"))
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent("read_hours", month="2026-09"))
     ui = FakeUI()
     agent = agent_mod.Agent(ui, Settings(), store=History(str(tmp_path / "h.db")))
     agent.handle("read september")
@@ -351,7 +351,7 @@ def test_suggestions_follow_the_steps(env):
 
 def test_language_is_remembered_for_suggestions(env, monkeypatch):
     agent, ui, pipe, send = env
-    monkeypatch.setattr(llm, "parse_intent", lambda t, h: llm.Intent(action="help", language="es"))
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: llm.Intent(action="help", language="es"))
     agent.handle("hola")
     assert agent.settings.language == "es"
     assert agent.suggestions()[0].startswith("lee mis horas de")
@@ -450,11 +450,57 @@ def test_add_and_remove_projects_by_chat(env):
     agent, ui, pipe, send = env
     send("add_project", project="P300")
     assert "P300" in agent.store.my_projects() and "P300" in pipe.categories
-    send("remove_project", project="P300")
+    monkeypatch_intent(agent, "remove_project", project="P300")
+    agent.handle("I don't work on P300 anymore")
     assert "P300" not in agent.store.my_projects()
     assert "Outlook categories are kept" in ui.said[-1]
     send("my_projects")
     assert ui.cards[-1][0] == "My projects (2)"
+
+
+def monkeypatch_intent(agent, action, **kw):
+    """parse_intent fijo sin tocar el texto que recibe handle()."""
+    intent = _intent(action, **kw)
+    llm.parse_intent = lambda t, h, **k: intent
+
+
+@pytest.fixture(autouse=True)
+def _restore_parse_intent():
+    original = llm.parse_intent
+    yield
+    llm.parse_intent = original
+
+
+def test_remove_project_taken_from_history_asks_which(env):
+    """'borrar' a secas tras hablar de un proyecto: no quitarlo, preguntar cuál."""
+    agent, ui, pipe, send = env
+    monkeypatch_intent(agent, "remove_project", project="P100")
+    agent.handle("borrar")
+    assert "P100" in agent.store.my_projects()
+    assert "Which project do you want to remove" in ui.said[-1] and "P100, VIRT1" in ui.said[-1]
+
+
+def test_clarify_asks_instead_of_acting(env):
+    agent, ui, pipe, send = env
+    monkeypatch_intent(agent, "clarify", reply="¿Quieres borrar el chat o quitar un proyecto?")
+    agent.handle("borrar")
+    assert ui.said[-1] == "¿Quieres borrar el chat o quitar un proyecto?"
+    assert agent.store.my_projects() == ['P100', 'VIRT1']
+
+    monkeypatch_intent(agent, "clarify", reply="")                     # sin pregunta del modelo
+    agent.handle("hazlo")
+    assert ui.said[-1].startswith("I'm not sure what you mean")
+
+
+def test_llm_receives_current_state(env, monkeypatch):
+    agent, ui, pipe, send = env
+    send("read_hours", month="2026-09")
+    seen = {}
+    monkeypatch.setattr(llm, "parse_intent",
+                        lambda t, h, **k: seen.update(k) or _intent("other"))
+    agent.handle("borrar")
+    state = seen["state"]
+    assert "Period read: 2026-09" in state and "My projects: P100, VIRT1" in state
 
 
 def _old_excel(tmp_path, codes):
@@ -493,7 +539,7 @@ def test_import_excel_unreadable_file(tmp_path, monkeypatch):
     bad = tmp_path / "bad.xlsx"
     pd.DataFrame({'X': [1]}).to_excel(bad, index=False)
     ui.file = str(bad)
-    monkeypatch.setattr(llm, "parse_intent", lambda t, h: _intent("import_projects"))
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent("import_projects"))
     agent.handle("import my projects from Excel")
     assert any("couldn't read bad.xlsx" in t for t in ui.said)
     assert "which projects" in ui.said[-1]
@@ -748,7 +794,7 @@ def test_truncated_intent_json_keeps_fields_before_reply():
 
 def test_greeting_shows_status_without_llm(env, monkeypatch):
     agent, ui, pipe, send = env
-    monkeypatch.setattr(llm, "parse_intent", lambda t, h: pytest.fail("greeting must not call the LLM"))
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: pytest.fail("greeting must not call the LLM"))
     agent.handle("¡Hola!")
     assert agent.lang == "es" and "¡Hola! Así vas:" in ui.said
     assert ui.cards[-1][0].startswith("Status ") and "lee mis horas de" in ui.said[-1]
@@ -761,7 +807,7 @@ def test_greeting_shows_status_without_llm(env, monkeypatch):
 ])
 def test_help_card_without_llm(env, monkeypatch, text, lang):
     agent, ui, pipe, send = env
-    monkeypatch.setattr(llm, "parse_intent", lambda t, h: pytest.fail("help must not call the LLM"))
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: pytest.fail("help must not call the LLM"))
     agent.handle(text)
     assert agent.lang == lang
     title, detail = ui.cards[-1]
@@ -799,7 +845,7 @@ def test_clear_chat_forgets_conversation_but_keeps_loaded_period(env):
 def test_clear_chat_by_text_without_llm(env, monkeypatch, text, lang):
     agent, ui, pipe, send = env
     agent.pending_targets = [{'code': 'P100'}]                     # ni una pregunta a medias lo atrapa
-    monkeypatch.setattr(llm, "parse_intent", lambda t, h: pytest.fail("clear must not call the LLM"))
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: pytest.fail("clear must not call the LLM"))
     agent.handle(text)
     assert ui.cleared == 1 and agent.lang == lang and agent.pending_targets == []
 
@@ -814,6 +860,14 @@ def test_clear_does_not_catch_hours_or_history():
 def test_llm_help_intent_shows_card(env, monkeypatch):
     agent, ui, pipe, send = env
     monkeypatch.setattr(llm, "parse_intent",
-                        lambda t, h: llm.Intent(action="help", language="es", reply="Te cuento"))
+                        lambda t, h, **k: llm.Intent(action="help", language="es", reply="Te cuento"))
     agent.handle("cuéntame de ti, qué funciones tienes")
     assert ui.cards[-1][0] == "What I can do" and "Te cuento" not in ui.said
+
+
+def test_clarify_only_offered_for_bare_messages():
+    for text in ("borrar", "delete", "cámbialo", "do it again", "apagar"):
+        assert llm.is_bare(text)
+    for text in ("prorratea", "preencher o workday", "ya no trabajo en SE3202", "lee septiembre",
+                 "borra el chat", "carga mi historial de los últimos 6 meses"):
+        assert not llm.is_bare(text)

@@ -430,6 +430,16 @@ MESSAGES = {
         "es": "{file} no tiene códigos de proyecto para importar.",
         "pt": "{file} não tem códigos de projeto para importar.",
     },
+    "clarify": {
+        "en": "I'm not sure what you mean. Do you want to read hours, change an hour, manage your projects or clear the chat?",
+        "es": "No estoy seguro de qué quieres. ¿Leer horas, cambiar una hora, gestionar tus proyectos o borrar el chat?",
+        "pt": "Não tenho certeza do que você quer. Ler horas, mudar uma hora, gerenciar seus projetos ou limpar o chat?",
+    },
+    "which_remove": {
+        "en": "Which project do you want to remove from your list? You have: {codes}.",
+        "es": "¿Qué proyecto quieres quitar de tu lista? Tienes: {codes}.",
+        "pt": "Qual projeto você quer tirar da sua lista? Você tem: {codes}.",
+    },
     "need_codes": {
         "en": "Which codes? Write them, e.g. “OF0104, FS3602A”.",
         "es": "¿Qué códigos? Escríbelos, p. ej. “OF0104, FS3602A”.",
