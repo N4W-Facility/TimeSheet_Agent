@@ -1,3 +1,4 @@
+import json
 """Flujos y agente con LLM y pipeline simulados (sin Ollama, Outlook ni navegador)."""
 import sys
 from datetime import datetime
@@ -67,6 +68,12 @@ def test_choose_n4w_weeks_cancel(tmp_path):
 
 
 # ── agente ───────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _no_narration(monkeypatch):
+    """Sin Ollama en los tests: la respuesta son los mensajes fijos (como si el modelo fallara)."""
+    monkeypatch.setattr(llm, "narrate", lambda *a, **k: None)
+
 
 def _intent(action, **kw):
     return llm.Intent(**{"action": action, "language": "en", "reply": "ok", **kw})
@@ -894,3 +901,60 @@ def test_clarify_only_offered_for_bare_messages():
     for text in ("prorratea", "preencher o workday", "ya no trabajo en SE3202", "lee septiembre",
                  "borra el chat", "carga mi historial de los últimos 6 meses"):
         assert not llm.is_bare(text)
+
+
+# ── respuesta redactada por el modelo ────────────────────────
+
+def test_narrated_reply_replaces_fixed_messages(env, monkeypatch):
+    agent, ui, pipe, send = env
+    seen = {}
+
+    def narrate(text, facts, language, state=""):
+        seen.update(text=text, facts=facts, language=language, state=state)
+        return "Septiembre quedó leído. ¿Prorrateamos?"
+    monkeypatch.setattr(llm, "narrate", narrate)
+    send("read_hours", month="2026-09")
+    assert ui.said[-2] == "Septiembre quedó leído. ¿Prorrateamos?"
+    assert "dedication to P100" in ui.said[-1]                         # la pregunta pendiente sale tal cual
+    assert not any("prorate the hours" in t for t in ui.said)          # el mensaje fijo no sale
+    assert any("prorate the hours" in f for f in seen["facts"])        # pero el modelo lo recibe
+    assert any(f.startswith("(card already shown) Projects 2026-09") for f in seen["facts"])
+    assert ui.cards                                                     # las tarjetas salen igual
+    assert "Period read: 2026-09" in seen["state"]
+    assert {"role": "assistant", "content": "Septiembre quedó leído. ¿Prorrateamos?"} in agent.chat_history
+
+
+def test_no_narration_on_errors(env, monkeypatch):
+    agent, ui, pipe, send = env
+    monkeypatch.setattr(llm, "narrate", lambda *a, **k: pytest.fail("no debe redactar"))
+    send("prorate")                                          # sin periodo leído → NeedInfo
+    assert ui.said[-1]
+
+
+def test_collect_keeps_context_before_questions_and_warnings():
+    ui = FakeUI()
+    c = agent_mod._Collect(ui)
+    c.say("I checked the codes")
+    assert ui.said == []                                     # retenido
+    c.say("⚠ P900 is closed")
+    assert ui.said == ["⚠ P900 is closed"]                   # avisos salen siempre
+    assert c.approve("Add?", "P300") is True
+    assert ui.said == ["⚠ P900 is closed", "I checked the codes"]   # contexto antes de preguntar
+    c.say("Added P300")
+    c.show("Card", "detail")
+    assert ui.cards == [("Card", "detail")] and c.said == ["Added P300"]
+    assert c.shown == ["(already shown) ⚠ P900 is closed", "(card already shown) Card: detail"]
+
+
+def test_narrate_rejects_invented_numbers(monkeypatch):
+    monkeypatch.undo()                                       # el narrate real
+    monkeypatch.setattr(llm.config, "OLLAMA_NARRATE", True)
+    facts = ["September 2026: 168 h, P100 7,5 h/day"]
+    monkeypatch.setattr(llm, "_chat", lambda *a, **k: json.dumps({'reply': "You logged 168 h, about 7.5 h a day on P100 in 2026."}))
+    assert llm.narrate("read september", facts, "en").startswith("You logged 168 h")
+    monkeypatch.setattr(llm, "_chat", lambda *a, **k: json.dumps({'reply': "You logged 170 h."}))
+    assert llm.narrate("read september", facts, "en") is None
+    monkeypatch.setattr(llm, "_chat", lambda *a, **k: (_ for _ in ()).throw(TimeoutError()))
+    assert llm.narrate("read september", facts, "en") is None
+    monkeypatch.setattr(llm.config, "OLLAMA_NARRATE", False)
+    assert llm.narrate("read september", facts, "en") is None

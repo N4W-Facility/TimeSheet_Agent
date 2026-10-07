@@ -102,6 +102,45 @@ PERIOD_RE = re.compile(r"\d|semana|week|\bmes\b|month|hoy|today|hoje|ayer|yester
 TARGET_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(%|h|hs|hrs|hours|horas|horas/mes)?")
 
 
+class _Collect:
+    """
+    UI de una acción: retiene sus mensajes para que el modelo redacte la respuesta.
+    Tarjetas y gráficas salen al momento; antes de una pregunta (decide/approve/...)
+    los mensajes retenidos salen tal cual, porque el usuario necesita el contexto.
+    Los avisos ⚠ salen siempre tal cual (en ámbar).
+    """
+    BLOCKING = {"decide", "approve", "confirm_send", "pick_file"}
+
+    def __init__(self, ui: AgentUI):
+        self.ui, self.said, self.shown = ui, [], []
+
+    def say(self, text: str):
+        if text.startswith("⚠"):
+            self.ui.say(text)
+            self.shown.append(f"(already shown) {text}")
+        else:
+            self.said.append(text)
+
+    def show(self, title: str, detail: str):
+        self.ui.show(title, detail)
+        self.shown.append(f"(card already shown) {title}: {detail[:600]}")
+
+    def flush(self):
+        for text in self.said:
+            self.ui.say(text)
+        self.said = []
+
+    def __getattr__(self, name):          # log, chart, clear y las preguntas bloqueantes
+        attr = getattr(self.ui, name)
+        if name not in self.BLOCKING:
+            return attr
+
+        def ask(*args, **kwargs):
+            self.flush()
+            return attr(*args, **kwargs)
+        return ask
+
+
 class Agent:
     def __init__(self, ui: AgentUI, settings: Settings, store: History = None):
         self.ui = ui
@@ -252,8 +291,12 @@ class Agent:
             self.ui.say(self.m("need_email"))
             return
 
+        collect = _Collect(self.ui)
+        ui, self.ui = self.ui, collect
+        done = False
         try:
             getattr(self, f"do_{intent.action}")(intent)
+            done = True
         except NeedInfo as e:
             self.ui.say(str(e))
         except Cancelled:
@@ -261,6 +304,31 @@ class Agent:
         except Exception as e:
             self.ui.log(traceback.format_exc())
             self.ui.say(self.m("error", err=e))
+        finally:
+            self.ui = ui
+        if done:
+            self._narrate(text, collect)
+        else:
+            collect.flush()
+
+    def _narrate(self, text: str, collect: "_Collect"):
+        """Respuesta redactada por el modelo con lo que dijo la acción; si no, los mensajes fijos."""
+        # una pregunta que espera respuesta (dedicación de un proyecto) sale tal cual, al final
+        ask = [collect.said.pop()] if self.pending_targets and collect.said else []
+        if not collect.said:
+            collect.said = ask
+            return collect.flush()
+        status = getattr(self.ui, "status", None)
+        if status:
+            status("Writing reply...")
+        reply = llm.narrate(text, collect.shown + collect.said, self.lang, self._context())
+        if reply:
+            self.ui.say(reply)
+            self._remember("assistant", reply)
+            collect.said = ask
+        else:
+            collect.said += ask
+        collect.flush()
 
     def _set_lang(self, lang: Optional[str]):
         self.lang = lang or self.lang

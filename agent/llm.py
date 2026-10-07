@@ -149,9 +149,9 @@ def list_models() -> list:
     return sorted(n for n in (m.get("model") or m.get("name") for m in models) if n)
 
 
-def _client():
+def _client(timeout: float = None):
     from ollama import Client
-    return Client(host=config.OLLAMA_HOST, timeout=config.OLLAMA_TIMEOUT)
+    return Client(host=config.OLLAMA_HOST, timeout=timeout or config.OLLAMA_TIMEOUT)
 
 
 def _options() -> dict:
@@ -191,12 +191,12 @@ def _track_usage(messages: list, resp):
         log.debug(f"context {used}/{config.OLLAMA_NUM_CTX} tokens")
 
 
-def _chat(messages: list, fmt=None, model: str = None) -> str:
+def _chat(messages: list, fmt=None, model: str = None, timeout: float = None, **options) -> str:
     kwargs = dict(model=model or current_model(), messages=messages,
-                  keep_alive=config.OLLAMA_KEEP_ALIVE, options=_options())
+                  keep_alive=config.OLLAMA_KEEP_ALIVE, options={**_options(), **options})
     if fmt is not None:
         kwargs["format"] = fmt
-    client = _client()
+    client = _client(timeout)
     try:
         resp = client.chat(think=False, **kwargs)   # qwen3: sin razonamiento → más rápido
     except TypeError:                               # librería ollama antigua sin 'think'
@@ -281,3 +281,48 @@ def parse_intent(text: str, history: List[dict], model: str = None, state: str =
         hours=data.get("hours"),
         months_back=data.get("months_back"),
     )
+
+
+# ── Respuesta redactada tras una acción ──────────────────────
+# Python ya hizo el trabajo y escribió los hechos (mensajes fijos); el modelo los
+# convierte en una respuesta natural. Si inventa una cifra, se usan los mensajes fijos.
+NARRATE_PROMPT = """You are the timesheet assistant of the N4W Facility team, talking to the user in a chat.
+The app just did what the user asked. Below are the FACTS it produced (some already shown on screen as cards).
+Write the reply to the user IN {language}: 1 to 3 short sentences, warm and direct, like a helpful colleague.
+- No greeting. Say what happened and what matters most (warnings first), then propose the next step as a question.
+- Use ONLY the facts: never invent numbers, dates, project codes or steps. Keep every number exactly as written.
+- If the facts suggest a phrase to type (in quotes), keep that phrase exactly, in quotes.
+- Do not repeat the cards line by line; do not list every project.
+Answer as JSON: {{"reply": "..."}}. Plain text inside, no markdown."""
+
+_REPLY_SCHEMA = {"type": "object", "properties": {"reply": {"type": "string"}}, "required": ["reply"]}
+_LANGS = {"es": "Spanish", "en": "English", "pt": "Portuguese", "fr": "French"}
+_NUM_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def _numbers(text: str) -> set:
+    return {float(n.replace(",", ".")) for n in _NUM_RE.findall(text)}   # "7,50" == "7.5"
+
+
+def narrate(user_text: str, facts: List[str], language: str, state: str = "",
+            model: str = None) -> Optional[str]:
+    """Respuesta natural a partir de los hechos; None si no se puede o si inventa cifras."""
+    if not config.OLLAMA_NARRATE or not facts:
+        return None
+    body = "User asked: " + user_text + "\n\nFACTS:\n" + "\n".join(f"- {f}" for f in facts)
+    if state:
+        body += "\n\nCurrent state:\n" + state
+    messages = [{"role": "system", "content": NARRATE_PROMPT.format(language=_LANGS.get(language, language))},
+                {"role": "user", "content": body}]
+    try:   # JSON: en texto libre qwen3 a veces escribe su razonamiento ("Okay, let's tackle this...")
+        raw = _chat(messages, fmt=_REPLY_SCHEMA, model=model, timeout=config.OLLAMA_NARRATE_TIMEOUT,
+                    num_predict=config.OLLAMA_NARRATE_TOKENS)
+        text = str(json.loads(raw).get("reply") or "").strip()
+    except Exception as e:
+        log.debug(f"narrate failed: {e}")
+        return None
+    invented = _numbers(text) - _numbers(body)
+    if not text or invented:
+        log.debug(f"narrate rejected (invented {invented}): {text!r}")
+        return None
+    return text

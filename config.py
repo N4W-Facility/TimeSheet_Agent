@@ -75,6 +75,10 @@ OLLAMA_TEMPERATURE = float(os.environ.get("TSA_OLLAMA_TEMPERATURE", "0.1"))
 OLLAMA_NUM_PREDICT = 512       # tope de salida; el JSON ocupa ~150 tokens
 OLLAMA_KEEP_ALIVE = "30m"      # modelo cargado en memoria entre mensajes
 OLLAMA_TIMEOUT = 60            # segundos; si Ollama no responde, el agente avisa
+# Tras cada acción el modelo redacta la respuesta (+3–8 s en CPU); "0" → solo mensajes fijos
+OLLAMA_NARRATE = os.environ.get("TSA_OLLAMA_NARRATE", "1") != "0"
+OLLAMA_NARRATE_TIMEOUT = 20    # segundos; si tarda más, se muestran los mensajes fijos
+OLLAMA_NARRATE_TOKENS = 200    # 1–3 frases en JSON
 
 # ── Historial y análisis (memoria mes a mes) ─────────────────
 APP_HOME = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "TimeSheetAgent")

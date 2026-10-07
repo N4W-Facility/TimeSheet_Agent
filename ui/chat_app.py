@@ -320,6 +320,9 @@ class ChatApp:
         color = AMBER if text.startswith("⚠") else TEXT
         self.root.after(0, lambda: self._agent_bubble(text, color))
 
+    def status(self, text: str):
+        self._set_status(text, AMBER)
+
     def log(self, text: str):
         def _update():
             self.log_box.configure(state="normal")
