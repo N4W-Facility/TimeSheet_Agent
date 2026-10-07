@@ -140,7 +140,7 @@ def _client():
 
 
 def _options() -> dict:
-    return {"temperature": 0, "num_ctx": config.OLLAMA_NUM_CTX,
+    return {"temperature": config.OLLAMA_TEMPERATURE, "num_ctx": config.OLLAMA_NUM_CTX,
             "num_predict": config.OLLAMA_NUM_PREDICT}
 
 
