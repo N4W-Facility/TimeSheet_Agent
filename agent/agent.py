@@ -19,7 +19,7 @@ import config
 import workflows
 from agent import i18n, llm, suggest
 from agent.settings import Settings
-from core import analysis, database, timesheet
+from core import analysis, charts, database, timesheet
 from core.history import History
 from pipeline import Callbacks, Cancelled, Decision, Pipeline
 
@@ -31,6 +31,7 @@ class AgentUI(Protocol):
     def decide(self, decision: Decision): ...                   # bloqueante
     def approve(self, title: str, detail: str) -> bool: ...     # bloqueante
     def pick_file(self, title: str) -> Optional[str]: ...       # explorador de archivos (bloqueante)
+    def chart(self, spec: dict): ...                            # tarjeta con gráfica (core.charts)
 
 
 class NeedInfo(Exception):
@@ -503,8 +504,10 @@ class Agent:
         self.ui.say(self.m("read_done", period=label, total=analysis.h(balance['Hours'].sum()),
                            n=len(balance)))
         # lo importante, en pocas frases (el detalle está en las tarjetas)
-        if flags['blocked']:
-            self.ui.say(self.m("blocked_projects", codes=", ".join(flags['blocked'])))
+        invalid = analysis.invalid_hours(df, self.status)     # según fechas de apertura / cierre
+        if invalid:
+            self.ui.show("⛔ Hours that cannot be uploaded", analysis.invalid_text(invalid))
+            self.ui.say(self.m("blocked_projects", codes=", ".join(i['code'] for i in invalid)))
         if flags['off_target']:
             self.ui.say(self.m("off_target", codes=", ".join(flags['off_target'])))
         if flags['new']:
@@ -589,6 +592,15 @@ class Agent:
         self.store.log_event(loaded.start, loaded.end, 'prorate', ", ".join(loaded.virtual))
         self.ui.say(self.m("prorate_done", phrase=self.p("workday", loaded.start)))
 
+    def _guard_upload(self, df: pd.DataFrame, start):
+        """Bloquea la subida si hay horas fuera de la vigencia de un proyecto (cerrado, sin abrir, inexistente)."""
+        self._ensure_global()
+        issues = analysis.invalid_hours(df, self.status)
+        if issues:
+            self.ui.show("⛔ Hours that cannot be uploaded", analysis.invalid_text(issues))
+            raise NeedInfo(self.m("upload_blocked", codes=", ".join(i['code'] for i in issues),
+                                  phrase=self.p("read", start)))
+
     def do_fill_workday(self, intent):
         # Una semana concreta (start_date = cualquier día de ella) dentro del mes leído
         sunday = None
@@ -612,6 +624,7 @@ class Agent:
         pipe = self._pipeline()
         source = "prorated" if loaded.prorated_path else "Outlook"
         if sunday is None:
+            self._guard_upload(df, loaded.start)
             pipe._approve(f"Fill Workday {loaded.label} with these hours ({source})?",
                           analysis.balance_text(df, loaded.start, loaded.end, config.EXPECTED_DAILY_HOURS))
             pipe.fill_workday(csv_path)
@@ -627,6 +640,7 @@ class Agent:
         week = df[(df['day'] >= f"{start:%Y-%m-%d}") & (df['day'] <= f"{end:%Y-%m-%d}")]
         if week.empty:
             raise NeedInfo(self.m("workday_week_empty", period=label))
+        self._guard_upload(week, loaded.start)
         pipe._approve(f"Fill Workday week {label} with these hours ({source})?",
                       analysis.balance_text(week, start, end, config.EXPECTED_DAILY_HOURS))
         pipe.fill_workday(csv_path, weeks_only=[f"{sunday:%Y-%m-%d}"])
@@ -647,6 +661,7 @@ class Agent:
         self._ensure_global()
         findings = pipe.build_timesheet(start, end)
         self.store.save(findings['timesheet'], 'outlook', start, end)
+        self._guard_upload(analysis.to_long(pd.read_csv(findings['path'])), start)
         pipe._approve(f"N4W {start:%Y-%m-%d} → {end:%Y-%m-%d}: hours OK?",
                       workflows.findings_report(findings))
         pipe.submit_n4w(findings['path'], start, end)
@@ -718,11 +733,52 @@ class Agent:
         self.ui.say(self.m("categories_synced", n=len(created)))
 
     # ── ANÁLISIS ─────────────────────────────────────────────
+    def _chart(self, spec: Optional[dict]):
+        """Las gráficas acompañan al texto: si fallan, el análisis igual se muestra."""
+        if not spec or not hasattr(self.ui, "chart"):
+            return
+        try:
+            self.ui.chart(spec)
+        except Exception as e:
+            self.ui.log(f"⚠ Chart not shown: {e}")
+
+    def _period_charts(self, df, start, end):
+        label = period_label(start, end)
+        self._chart(charts.share_chart(df, f"Hours by project {label}"))
+        self._chart(charts.daily_chart(df, start, end, config.EXPECTED_DAILY_HOURS, f"Hours per day {label}"))
+
     def do_hours_summary(self, intent):
         start, end = self._analysis_period(intent)
         df = self._history(start, end)
         self.ui.show(f"Summary {period_label(start, end)}",
                      analysis.balance_text(df, start, end, config.EXPECTED_DAILY_HOURS))
+        self._period_charts(df, start, end)
+
+    def do_show_chart(self, intent):
+        """Gráfica pedida: de un proyecto (tendencia), de un periodo (distribución y días) o de varios meses."""
+        if intent.project:
+            df = self.store.all_hours()
+            spec = charts.trend_chart(df, intent.project, self.store.targets().get(intent.project))
+            if spec is None:
+                raise NeedInfo(self.m("unknown_project", code=intent.project))
+            self._chart(spec)
+            return
+        if intent.month or (intent.start_date and intent.end_date):
+            start, end = self._period(intent)[:2]
+            df = self._history(start, end)
+            if start.strftime('%Y-%m') == end.strftime('%Y-%m'):
+                self._period_charts(df, start, end)
+            else:
+                self._chart(charts.months_chart(df, f"Hours per month {period_label(start, end)}"))
+            return
+        df = self.store.all_hours()
+        if df.empty:
+            raise NeedInfo(self.m("history_empty", a=self.p("read", self._last_month()),
+                                  b=self.p("load_history")))
+        if intent.months_back:
+            first = (datetime.now().replace(day=1) - pd.DateOffset(months=int(intent.months_back)))
+            df = df[df['day'] >= f"{first:%Y-%m-%d}"]
+        self._chart(charts.months_chart(df))
 
     def do_compare_months(self, intent):
         start_a, end_a = self._analysis_period(intent)
@@ -732,8 +788,9 @@ class Agent:
             prev = start_a - timedelta(days=1)
             start_b, end_b = timesheet.month_bounds(prev.year, prev.month)
         a, b = period_label(start_a, end_a), period_label(start_b, end_b)
-        text = analysis.compare_text(self._history(start_a, end_a), self._history(start_b, end_b), a, b)
-        self.ui.show(f"{a} vs {b}", text)
+        df_a, df_b = self._history(start_a, end_a), self._history(start_b, end_b)
+        self.ui.show(f"{a} vs {b}", analysis.compare_text(df_a, df_b, a, b))
+        self._chart(charts.compare_chart(df_a, df_b, a, b))
 
     def do_project_stats(self, intent):
         df = self.store.all_hours()
@@ -746,8 +803,10 @@ class Agent:
             if text is None:
                 raise NeedInfo(self.m("unknown_project", code=intent.project))
             self.ui.show(f"Project {intent.project}", text)
+            self._chart(charts.trend_chart(df, intent.project, targets.get(intent.project)))
         else:
             self.ui.show("Project averages", analysis.averages_text(df, targets))
+            self._chart(charts.months_chart(df))
 
     def do_set_target(self, intent):
         if not intent.project:

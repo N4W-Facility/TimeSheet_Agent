@@ -268,3 +268,43 @@ def test_workday_parse_hours_cell():
     assert parse_hours('7,25') == 7.25
     assert parse_hours('8') == 8.0
     assert parse_hours('') == 0.0
+
+
+def test_invalid_hours_respects_open_and_close_dates():
+    df = pd.DataFrame({'code': ['A1', 'A1', 'B2', 'C3', 'D4', 'XX01'],
+                       'task_name': [''] * 6,
+                       'day': ['2026-08-14', '2026-08-20', '2026-08-03', '2026-08-03', '2026-08-03', '2026-08-03'],
+                       'hours': [4.0, 3.0, 2.0, 1.0, 5.0, 8.0]})
+    status = {'A1': {'opened': '2020-01-01', 'closed': '2026-08-15'},     # cerrado a mitad de mes
+              'B2': {'opened': '2026-08-10', 'closed': None},             # abre después
+              'C3': {'opened': None, 'closed': None},                     # sin abrir
+              'D4': {'opened': '2020-01-01', 'closed': None}}             # activo
+    got = {i['code']: (i['reason'], i['days'], i['hours']) for i in analysis.invalid_hours(df, status)}
+    assert got == {'A1': ('closed', ['2026-08-20'], 3.0),
+                   'B2': ('not_opened', ['2026-08-03'], 2.0),
+                   'C3': ('not_opened', ['2026-08-03'], 1.0)}
+    df2 = df.assign(code=['Z9'] * 6)
+    assert analysis.invalid_hours(df2, status)[0]['reason'] == 'missing'
+
+
+def _long(rows):
+    return pd.DataFrame(rows, columns=['day', 'code', 'task_name', 'hours'])
+
+
+def test_chart_specs_and_renderers():
+    from core import charts
+    df = _long([('2026-08-03', 'A1', '', 6.0), ('2026-08-03', 'B2', '', 2.0),
+                ('2026-09-01', 'A1', '', 8.0)])
+    m = charts.months_chart(df)
+    assert m['x'] == ['2026-08', '2026-09']
+    assert {s['name']: s['values'] for s in m['series']} == {'A1': [6.0, 8.0], 'B2': [2.0, 0.0]}
+    d = charts.daily_chart(df, datetime(2026, 8, 3), datetime(2026, 8, 9), 8.0, "t")
+    assert d['series'][0]['values'][:2] == [8.0, 0.0] and d['missing'] == ['2026-08-04', '2026-08-05',
+                                                                            '2026-08-06', '2026-08-07']
+    t = charts.trend_chart(df, 'A1', {'pct': 50, 'hours': None})
+    assert t['lines'][1]['values'] == [4.0, 4.0]
+    assert charts.trend_chart(df, 'ZZ') is None
+    for spec in (m, d, t, charts.share_chart(df, "s"), charts.compare_chart(df, df.iloc[:1], "a", "b")):
+        fig, artists = charts.mpl_figure(spec)                   # dibuja sin pantalla
+        assert artists
+        assert charts.plotly_figure(spec).data

@@ -20,10 +20,12 @@ from pipeline import Callbacks, Cancelled, Pipeline  # noqa: E402
 class FakeUI:
     def __init__(self, choice=None):
         self.said, self.logs, self.cards, self.choice, self.decisions = [], [], [], choice, []
+        self.charts = []
 
     def say(self, text): self.said.append(text)
     def log(self, text): self.logs.append(text)
     def show(self, title, detail): self.cards.append((title, detail))
+    def chart(self, spec): self.charts.append(spec)
     def decide(self, d):
         self.decisions.append(d)
         if self.choice:
@@ -72,10 +74,10 @@ class FakePipe:
         self.tmp, self.virtual = tmp_path, list(virtual)
         self.approved, self.filled, self.refreshes, self.categories = [], None, 0, []
         self.status = {
-            'P100': {'status': 'active', 'prorate': False, 'description': 'Project', 'closed': None},
-            'P200': {'status': 'closed', 'prorate': False, 'description': 'Old', 'closed': '2026-08-31'},
-            'P300': {'status': 'active', 'prorate': False, 'description': 'Other', 'closed': None},
-            'VIRT1': {'status': 'active', 'prorate': True, 'description': 'Virtual', 'closed': None}}
+            'P100': {'status': 'active', 'prorate': False, 'description': 'Project', 'opened': '2020-01-01', 'closed': None},
+            'P200': {'status': 'closed', 'prorate': False, 'description': 'Old', 'opened': '2020-01-01', 'closed': '2026-08-31'},
+            'P300': {'status': 'active', 'prorate': False, 'description': 'Other', 'opened': '2020-01-01', 'closed': None},
+            'VIRT1': {'status': 'active', 'prorate': True, 'description': 'Virtual', 'opened': '2020-01-01', 'closed': None}}
 
     def refresh_task_details(self):
         self.refreshes += 1
@@ -448,3 +450,30 @@ def test_workday_week_of_other_month_asks_to_read_it(env):
     pipe.filled = None
     assert send("fill_workday", start_date="2026-11-10").startswith("First read your hours")
     assert pipe.filled is None
+
+
+def test_workday_blocks_hours_after_project_closed(env):
+    agent, ui, pipe, send = env
+    pipe.virtual = []
+    pipe.status['P100']['closed'] = '2026-09-15'                    # cerró a mitad de mes
+    send("read_hours", month="2026-09")                             # leer sí: queda para análisis
+    assert agent.store.hours(*agent._period(_intent("x", month="2026-09"))[:2]).shape[0] > 0
+    assert "P100" in send("fill_workday") and pipe.filled is None   # el mes tiene días posteriores
+    assert any(t.startswith("⛔") for t, _ in ui.cards)
+    send("fill_workday", start_date="2026-09-08")                   # semana antes del cierre: permitido
+    assert pipe.weeks_only == ["2026-09-06"]
+
+
+def test_analysis_comes_with_charts(env):
+    agent, ui, pipe, send = env
+    pipe.virtual = []
+    send("read_hours", month="2026-08")
+    send("read_hours", month="2026-09")
+    send("hours_summary", month="2026-09")
+    assert [c['kind'] for c in ui.charts[-2:]] == ['donut', 'daily']
+    send("compare_months", month="2026-09", month2="2026-08")
+    assert ui.charts[-1]['kind'] == 'grouped'
+    send("show_chart", project="P100")
+    assert ui.charts[-1]['kind'] == 'trend' and ui.charts[-1]['x'] == ['2026-08', '2026-09']
+    send("show_chart")
+    assert ui.charts[-1]['kind'] == 'stacked'

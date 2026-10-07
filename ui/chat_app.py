@@ -4,6 +4,7 @@
 # El agente corre en un hilo; decide/approve bloquean ese hilo
 # hasta que el usuario responde en la tarjeta (threading.Event).
 # ============================================================
+import os
 import threading
 from tkinter import filedialog
 
@@ -326,6 +327,36 @@ class ChatApp:
             self._detail_box(self._card(title, BORDER), detail)
             self._scroll_bottom()
         self.root.after(0, build)
+
+    def chart(self, spec: dict):
+        """Tarjeta con la gráfica (valores al pasar el mouse) y botón para abrirla interactiva."""
+        def build():
+            card = self._card(spec['title'], BORDER)
+            try:
+                from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+                from core import charts
+                fig, artists = charts.mpl_figure(spec)
+                canvas = FigureCanvasTkAgg(fig, master=card)
+                canvas.draw()
+                canvas.get_tk_widget().pack(fill="x", padx=14, pady=(0, 6))
+                card._hover = charts.attach_hover(artists)      # referencia viva para el hover
+            except Exception as e:
+                ctk.CTkLabel(card, text=f"Chart not available: {e}", font=(FONT, 11),
+                             text_color=MUTED).pack(anchor="w", padx=14)
+            ctk.CTkButton(card, text="Open interactive ↗", width=150, height=28, font=(FONT, 11),
+                          fg_color=BORDER, hover_color="#3f3f46", text_color=TEXT, corner_radius=6,
+                          command=lambda: threading.Thread(target=self._open_chart, args=(spec,),
+                                                           daemon=True).start()
+                          ).pack(anchor="e", padx=14, pady=(0, 12))
+            self._scroll_bottom()
+        self.root.after(0, build)
+
+    def _open_chart(self, spec: dict):
+        try:
+            from core import charts
+            charts.open_interactive(spec, os.path.join(config.APP_HOME, "charts"))
+        except Exception as e:
+            self.log(f"⚠ Could not open the interactive chart: {e}")
 
     def approve(self, title: str, detail: str) -> bool:
         def build(done):

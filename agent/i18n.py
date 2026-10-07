@@ -176,9 +176,14 @@ MESSAGES = {
         "pt": "⚠ Não consegui obter o N4W_Task_Details ({err}). Não posso comparar com a base global.",
     },
     "blocked_projects": {
-        "en": "⛔ {codes}: closed or not in the global list — Workday/N4W will reject those hours. Move them to an active project in Outlook and read again.",
-        "es": "⛔ {codes}: cerrado o no está en la base global — Workday/N4W rechazará esas horas. Pásalas a un proyecto activo en Outlook y vuelve a leer.",
-        "pt": "⛔ {codes}: encerrado ou fora da base global — Workday/N4W vai rejeitar essas horas. Passe-as para um projeto ativo no Outlook e leia de novo.",
+        "en": "⛔ {codes}: hours outside the project's open period (closed, not opened or not in the global list). They are saved for analysis, but cannot be uploaded to Workday/N4W — to upload, move them to an active project in Outlook and read again.",
+        "es": "⛔ {codes}: horas fuera de la vigencia del proyecto (cerrado, sin abrir o fuera de la base global). Quedan guardadas para análisis, pero no se pueden subir a Workday/N4W — para subirlas, pásalas a un proyecto activo en Outlook y vuelve a leer.",
+        "pt": "⛔ {codes}: horas fora da vigência do projeto (encerrado, não aberto ou fora da base global). Ficam salvas para análise, mas não podem ser enviadas ao Workday/N4W — para enviar, passe-as para um projeto ativo no Outlook e leia de novo.",
+    },
+    "upload_blocked": {
+        "en": "⛔ I can't upload these hours: {codes} have hours outside their open period. Correct the category of those meetings in Outlook and read again: “{phrase}”.",
+        "es": "⛔ No puedo subir estas horas: {codes} tiene horas fuera de su vigencia. Corrige la categoría de esas reuniones en Outlook y vuelve a leer: “{phrase}”.",
+        "pt": "⛔ Não posso enviar estas horas: {codes} tem horas fora da vigência. Corrija a categoria dessas reuniões no Outlook e leia de novo: “{phrase}”.",
     },
     "off_target": {
         "en": "⚠ Off your target dedication: {codes} (see the Projects card).",

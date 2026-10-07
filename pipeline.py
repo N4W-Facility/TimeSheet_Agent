@@ -205,6 +205,17 @@ class Pipeline:
         self.cb.log(f"✓ {os.path.basename(path)}")
         return path
 
+    # ── Proyectos cerrados: nunca se suben horas fuera de su vigencia ──
+    def check_uploadable(self, csv_path: str, days: Optional[set] = None):
+        """ValueError si hay horas en proyectos inexistentes, sin abrir o después de su cierre."""
+        df = analysis.to_long(pd.read_csv(csv_path))
+        if days is not None:
+            df = df[df['day'].isin(days)]
+        issues = analysis.invalid_hours(df, self.task_status())
+        if issues:
+            raise ValueError("Hours on closed / not opened projects — correct them in Outlook and "
+                             "read the period again:\n" + analysis.invalid_text(issues))
+
     # ── Workday ──────────────────────────────────────────────
     def fill_workday(self, csv_path: str, confirm_each_week: bool = True, weeks_only: list = None):
         """
@@ -221,6 +232,8 @@ class Pipeline:
             weeks = {w: p for w, p in weeks.items() if w in weeks_only}
             if not weeks:
                 raise ValueError("No hours to fill in the requested week.")
+        self.check_uploadable(csv_path, {f"{d[6:]}-{d[3:5]}-{d[:2]}" for p in weeks.values()
+                                         for x in p for d in x['hours']})
         self.cb.log(f"{len(weeks)} weeks | {sum(len(p) for p in weeks.values())} entries")
 
         if not is_cdp_running() and not launch_chrome(log_callback=self.cb.log):
@@ -246,6 +259,7 @@ class Pipeline:
         """Valida, genera el Excel N4W y lo copia a OneDrive. Devuelve la ruta destino."""
         if not self.email:
             raise ValueError("User email is required for N4W.")
+        self.check_uploadable(csv_path)
         df = pd.read_csv(csv_path)
 
         ok, err = timesheet.validate_complete_weeks(start, end)

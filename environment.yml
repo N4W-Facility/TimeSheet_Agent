@@ -9,9 +9,12 @@ dependencies:
   - python=3.11.13
   - pandas>=2.1,<3
   - numpy
+  # BLAS OpenBLAS: el MKL de Intel (2026.x) tumba numpy en Windows (0xc06d007f, DLL diferida)
+  - libblas=*=*openblas
   - openpyxl
   - requests
   - tzlocal
+  - matplotlib-base     # gráficas dentro del chat
   - sel(win): pywin32
   - pytest
   - pip
@@ -19,3 +22,5 @@ dependencies:
       - playwright      # wheel con driver incluido (el paquete conda 'playwright' es solo Node)
       - customtkinter
       - ollama
+      - mplcursors        # valores al pasar el mouse en las gráficas del chat
+      - plotly            # gráfica interactiva en el navegador

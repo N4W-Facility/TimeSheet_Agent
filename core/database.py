@@ -50,7 +50,7 @@ def task_status(task_details_path: str) -> dict:
     """
     Estado global de todos los proyectos de N4W_Task_Details.xlsx:
     CÓDIGO (mayúsculas) → {'status': 'active'|'closed'|'not_opened', 'prorate': bool,
-                           'description', 'task_name', 'grant_id', 'closed'}
+                           'description', 'task_name', 'grant_id', 'opened', 'closed'}
     """
     df = pd.read_excel(task_details_path)
     out = {}
@@ -64,13 +64,14 @@ def task_status(task_details_path: str) -> dict:
         else:
             status = 'active'
         prorate = r.get('Prorate')
-        closed = r.get('Date_Closed')
+        opened, closed = r.get('Date_Opened'), r.get('Date_Closed')
         out[str(r['Task_Name']).strip().upper()] = {
             'status': status,
             'prorate': not _is_empty(prorate) and int(prorate) == 1,
             'description': _text(r.get('Task_Name_Description')),
             'task_name': _text(r.get('WD_TaskName')),
             'grant_id': _text(r.get('WD_GrantID')),
+            'opened': None if _is_empty(opened) else pd.Timestamp(opened).strftime('%Y-%m-%d'),
             'closed': None if _is_empty(closed) else pd.Timestamp(closed).strftime('%Y-%m-%d'),
         }
     return out

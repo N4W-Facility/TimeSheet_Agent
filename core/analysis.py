@@ -224,6 +224,44 @@ STATUS_LABEL = {'active': 'active', 'closed': '⛔ closed', 'not_opened': '⛔ n
 BLOCKED = ('closed', 'not_opened', 'missing')
 
 
+def invalid_hours(df: pd.DataFrame, status: Dict[str, dict]) -> List[dict]:
+    """
+    Horas que no se pueden subir (formato largo): proyecto inexistente, sin abrir,
+    o días antes de la apertura / después del cierre. Los internos (XX) no se revisan.
+    Returns: [{'code', 'reason': 'missing'|'not_opened'|'closed', 'limit', 'days', 'hours'}]
+    """
+    out = []
+    for code, g in df.groupby('code'):
+        if is_special_code(code):
+            continue
+        info = status.get(str(code).strip().upper())
+        if not info:
+            reason, limit, bad = 'missing', None, g
+        elif not info.get('opened'):
+            reason, limit, bad = 'not_opened', None, g
+        elif (g['day'] < info['opened']).any():
+            reason, limit, bad = 'not_opened', info['opened'], g[g['day'] < info['opened']]
+        elif info.get('closed') and (g['day'] > info['closed']).any():
+            reason, limit, bad = 'closed', info['closed'], g[g['day'] > info['closed']]
+        else:
+            continue                    # días dentro de la vigencia: se pueden subir
+        out.append({'code': code, 'reason': reason, 'limit': limit,
+                    'days': sorted(bad['day'].unique()), 'hours': float(bad['hours'].sum())})
+    return out
+
+
+def invalid_text(issues: List[dict]) -> str:
+    """Tabla de horas bloqueadas para la tarjeta."""
+    why = {'missing': 'not in Task Details', 'not_opened': 'not opened', 'closed': 'closed'}
+    lines = []
+    for i in issues:
+        reason = why[i['reason']] + (f" ({'opens' if i['reason'] == 'not_opened' else 'since'} {i['limit']})"
+                                     if i['limit'] else "")
+        days = ", ".join(d[5:] for d in i['days'][:8]) + (" …" if len(i['days']) > 8 else "")
+        lines.append(f"{i['code']:<10} {h(i['hours']):>6} h   {reason}\n           days: {days}")
+    return "\n".join(lines)
+
+
 def global_status(code: str, status: Dict[str, dict]) -> str:
     """active / closed / not_opened / missing / internal según N4W_Task_Details."""
     if is_special_code(code):

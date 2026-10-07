@@ -20,7 +20,7 @@ STEPS = ["read_hours", "prorate", "fill_workday", "submit_n4w"]
 PROJECTS = ["my_projects", "add_project", "remove_project", "import_projects"]
 # Análisis sobre el historial
 ANALYSIS = ["hours_summary", "compare_months", "project_stats", "set_target",
-            "alerts", "load_history"]
+            "alerts", "load_history", "show_chart"]
 OTHER = ["update_database", "sync_categories", "help", "other"]
 ACTIONS = STEPS + PROJECTS + ANALYSIS + OTHER
 
@@ -70,6 +70,7 @@ Analysis of saved history:
 - set_target: the user states the dedication a project SHOULD have: target_pct (% of the month) and/or target_hours (hours per month).
 - alerts: check a month for problems (deviations from targets or averages, missing hours).
 - load_history: read past months from Outlook to build the history. months_back = number of months.
+- show_chart: the user asks for a chart/graph/plot of their hours ("show me a chart of my hours this year", "graph OF0104"). Set month/dates, project or months_back if given.
 Other:
 - update_database: download again the global project list (N4W_Task_Details) and review my projects.
 - sync_categories: create the missing Outlook categories for my projects.
