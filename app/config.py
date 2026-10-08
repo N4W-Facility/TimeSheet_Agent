@@ -74,6 +74,7 @@ OLLAMA_MAX_HISTORY = int(os.environ.get("TSA_OLLAMA_MAX_HISTORY", "20"))   # men
 OLLAMA_TEMPERATURE = float(os.environ.get("TSA_OLLAMA_TEMPERATURE", "0.1"))
 OLLAMA_NUM_PREDICT = 512       # tope de salida; el JSON ocupa ~150 tokens
 OLLAMA_KEEP_ALIVE = "30m"      # modelo cargado en memoria entre mensajes
+OLLAMA_KEEP_ALIVE_ON_EXIT = "5m"   # al cerrar la app: libera RAM/GPU pero reabrir enseguida no recarga
 OLLAMA_TIMEOUT = 60            # segundos; si Ollama no responde, el agente avisa
 # Tras cada acción el modelo redacta la respuesta (+3–8 s en CPU); "0" → solo mensajes fijos
 OLLAMA_NARRATE = os.environ.get("TSA_OLLAMA_NARRATE", "1") != "0"

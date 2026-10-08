@@ -575,3 +575,4 @@ def main():
     root = ctk.CTk()
     ChatApp(root)
     root.mainloop()
+    llm.release()                                   # ventana cerrada: no dejar el modelo 30 min en RAM/GPU

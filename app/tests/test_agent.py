@@ -988,3 +988,26 @@ def test_reread_on_purpose_does_not_ask(env, monkeypatch):
     n = len(ui.cards)
     agent.handle("lee de nuevo septiembre 2026-09")
     assert agent.pending_reread is None and any("(Outlook)" in t for t, _ in ui.cards[n:])
+
+
+def test_release_shortens_keep_alive_only_if_model_loaded(monkeypatch):
+    from agent import llm
+    calls = []
+
+    class FakeClient:
+        def __init__(self, loaded):
+            self.loaded = loaded
+
+        def ps(self):
+            return {"models": [{"model": m} for m in self.loaded]}
+
+        def generate(self, **kw):
+            calls.append(kw)
+
+    monkeypatch.setattr(llm, "_client", lambda timeout=None: FakeClient([]))
+    llm.release()
+    assert calls == []                              # no cargado: no se carga para soltarlo
+
+    monkeypatch.setattr(llm, "_client", lambda timeout=None: FakeClient([llm.current_model()]))
+    llm.release()
+    assert calls[0]["keep_alive"] == llm.config.OLLAMA_KEEP_ALIVE_ON_EXIT

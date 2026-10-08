@@ -227,6 +227,19 @@ def warm_up():
         log.debug(f"warm-up failed: {e}")
 
 
+def release():
+    """Al cerrar la app: el modelo se descarga a los OLLAMA_KEEP_ALIVE_ON_EXIT (no a los 30 min)."""
+    try:
+        client = _client(3)
+        loaded = [m.get("model") or m.get("name") for m in client.ps()["models"]]
+        if current_model() not in loaded:           # no cargado: no hay que cargarlo para soltarlo
+            return
+        client.generate(model=current_model(), prompt="", keep_alive=config.OLLAMA_KEEP_ALIVE_ON_EXIT,
+                        options=_options())        # mismo num_ctx → solo cambia el plazo, no recarga
+    except Exception as e:
+        log.debug(f"release failed: {e}")
+
+
 def _clean_code(value) -> Optional[str]:
     return str(value).strip().upper() if value else None
 
