@@ -925,6 +925,36 @@ def test_narrated_reply_replaces_fixed_messages(env, monkeypatch):
     assert {"role": "assistant", "content": "Septiembre quedó leído. ¿Prorrateamos?"} in agent.chat_history
 
 
+def test_draft_shows_fixed_messages_now_and_narration_replaces_them(env, monkeypatch):
+    agent, ui, pipe, send = env
+    drafts, revised = [], []
+    ui.draft = lambda text: drafts.append(text) or len(drafts)
+    ui.revise = lambda key, text: revised.append((key, text))
+    monkeypatch.setattr(llm, "narrate", lambda *a, **k: "Septiembre quedó leído.")
+    send("read_hours", month="2026-09")
+    assert "prorate the hours" in drafts[0]                              # fijos al momento, sin esperar al modelo
+    assert revised == [(1, "Septiembre quedó leído.")]
+    assert not any("prorate the hours" in t for t in ui.said)          # no se repiten como burbuja aparte
+    assert "dedication to P100" in ui.said[-1]                         # la pregunta pendiente sale tal cual
+    monkeypatch.setattr(llm, "narrate", lambda *a, **k: None)          # sin redacción: el borrador queda
+    send("read_hours", start_date="2026-10-05", end_date="2026-10-11")
+    assert len(drafts) == 2 and len(revised) == 1                      # el segundo borrador no se reemplaza
+
+
+def test_intent_prompt_keeps_a_fixed_prefix(monkeypatch):
+    """Fecha y estado van al final: el prompt fijo + historial es un prefijo que Ollama reutiliza."""
+    seen = []
+    monkeypatch.setattr(llm, "_chat", lambda messages, **k: seen.append(messages) or json.dumps({"action": "status"}))
+    llm.parse_intent("what's left?", [], state="Period read: 2026-09")
+    llm.parse_intent("and N4W?", [{"role": "user", "content": "what's left?"},
+                                  {"role": "assistant", "content": "ok"}], state="Period read: 2026-09, prorated")
+    first, second = seen
+    assert first[0] == second[0] and "{" not in first[0]["content"]    # sistema idéntico, sin campos
+    assert first[-2]["role"] == "system" and "Period read: 2026-09" in first[-2]["content"]
+    assert "Today is" in second[-2]["content"] and "prorated" in second[-2]["content"]
+    assert second[-1] == {"role": "user", "content": "and N4W?"}
+
+
 def test_no_narration_on_errors(env, monkeypatch):
     agent, ui, pipe, send = env
     monkeypatch.setattr(llm, "narrate", lambda *a, **k: pytest.fail("no debe redactar"))

@@ -286,7 +286,7 @@ class Agent:
         if intent.reply and intent.action != "help":
             self.ui.say(intent.reply)
             self._remember("assistant", intent.reply)
-        self.ui.log(f"[intent] {intent}")
+        self.ui.log(f"[intent] {intent}  ({llm.last_timing})")
 
         if intent.action == "help":
             self.do_help()
@@ -374,10 +374,19 @@ class Agent:
         status = getattr(self.ui, "status", None)
         if status:
             status("Writing reply...")
+        # la UI que lo soporta muestra ya los mensajes fijos y luego los cambia por la redacción
+        draft = getattr(self.ui, "draft", None)
+        shown = draft("\n\n".join(collect.said)) if draft else None
         reply = llm.narrate(text, collect.shown + collect.said, self.lang, self._context())
+        self.ui.log(f"[narrate] {llm.last_timing}")
         if reply:
-            self.ui.say(reply)
+            if shown is not None:
+                self.ui.revise(shown, reply)
+            else:
+                self.ui.say(reply)
             self._remember("assistant", reply)
+            collect.said = ask
+        elif shown is not None:
             collect.said = ask
         else:
             collect.said += ask

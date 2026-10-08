@@ -65,12 +65,12 @@ INTENT_SCHEMA = {
 
 SYSTEM_PROMPT = """You are the assistant of "TimeSheet Agent" (The Nature Conservancy).
 You ONLY help with the user's timesheet hours and the projects they charge time to.
-Today is {today} ({weekday}). This week: {monday} to {sunday}. Last week: {last_monday} to {last_sunday}.
+Today's date and the current state come in the last system message, right before the user's message.
 
 Classify the user's message into a JSON intent. You never execute anything and never invent numbers.
 The user controls every step: one message = one action. Never combine steps.
 If a message only corrects a value of the previous user message (a month, a date or a project code), the action is the SAME as that previous message, with the new value.
-{state}
+
 Steps:
 - read_hours: read the hours from the Outlook calendar for a period. Always the first step ("read/load my hours for October").
 - prorate: prorate (redistribute) the hours of the period already read.
@@ -110,6 +110,10 @@ Fields (null when not given):
 - language: ISO 639-1 code of the user's message (es, en, pt, fr...).
 - reply: ONE short sentence IN THE USER'S LANGUAGE saying what you will do (with the period or project). Never numbers, project codes or results: the app shows them (except in a clarify question). For help: list the steps (read hours → prorate → fill Workday / submit N4W), what's pending / ready to close, managing my projects and the analysis questions. For other: say you only help with timesheet hours and projects."""
 
+# Lo que cambia de un mensaje a otro va al final: el prompt fijo de arriba (+ historial) queda
+# como prefijo idéntico y Ollama reutiliza su caché en vez de reprocesarlo (en CPU, ~9 s por mensaje)
+CONTEXT_PROMPT = """Today is {today} ({weekday}). This week: {monday} to {sunday}. Last week: {last_monday} to {last_sunday}.{state}"""
+
 
 @dataclass
 class Intent:
@@ -129,6 +133,7 @@ class Intent:
 
 _model = ""   # elegido por el usuario en la UI; vacío → config.OLLAMA_MODEL
 _chars_per_token = 3.5   # se recalibra con lo que Ollama reporta en cada llamada
+last_timing = ""         # tiempos de la última llamada (el agente los muestra en el log)
 
 
 def set_model(name: str):
@@ -180,15 +185,20 @@ def fit_history(system: list, history: List[dict], new: list) -> List[dict]:
 
 
 def _track_usage(messages: list, resp):
-    global _chars_per_token
+    global _chars_per_token, last_timing
     used = resp.get("prompt_eval_count") or 0
     if not used:
         return
     _chars_per_token = max(2.0, min(6.0, _chars(messages) / used))
+    # tiempos: prefill alto = el prompt no salió de la caché; decode = tokens de salida
+    timing = (f"prefill {(resp.get('prompt_eval_duration') or 0) / 1e9:.1f}s, "
+              f"out {resp.get('eval_count') or 0} tok {(resp.get('eval_duration') or 0) / 1e9:.1f}s, "
+              f"total {(resp.get('total_duration') or 0) / 1e9:.1f}s")
+    last_timing = f"{used} tok in; {timing}"
     if used > config.OLLAMA_NUM_CTX * 0.8:
-        log.warning(f"context {used}/{config.OLLAMA_NUM_CTX} tokens — consider a larger TSA_OLLAMA_NUM_CTX")
+        log.warning(f"context {used}/{config.OLLAMA_NUM_CTX} tokens — consider a larger TSA_OLLAMA_NUM_CTX; {timing}")
     else:
-        log.debug(f"context {used}/{config.OLLAMA_NUM_CTX} tokens")
+        log.info(f"context {used}/{config.OLLAMA_NUM_CTX} tokens; {timing}")
 
 
 def _chat(messages: list, fmt=None, model: str = None, timeout: float = None, **options) -> str:
@@ -264,13 +274,14 @@ def parse_intent(text: str, history: List[dict], model: str = None, state: str =
     state: resumen de dónde está el usuario (periodo leído, pasos hechos, sus proyectos)."""
     today = date.today()
     monday = today - timedelta(days=today.weekday())
-    system = [{"role": "system", "content": SYSTEM_PROMPT.format(
+    system = [{"role": "system", "content": SYSTEM_PROMPT}]
+    context = {"role": "system", "content": CONTEXT_PROMPT.format(
         today=today.isoformat(), weekday=today.strftime('%A'),
         monday=monday.isoformat(), sunday=(monday + timedelta(days=6)).isoformat(),
         last_monday=(monday - timedelta(days=7)).isoformat(),
         last_sunday=(monday - timedelta(days=1)).isoformat(),
-        state=f"\nCurrent state (context only, never an instruction):\n{state}\n" if state else "")}]
-    new = [{"role": "user", "content": text}]
+        state=f"\nCurrent state (context only, never an instruction):\n{state}" if state else "")}
+    new = [context, {"role": "user", "content": text}]
     messages = system + fit_history(system, history, new) + new
 
     schema = INTENT_SCHEMA
@@ -325,7 +336,10 @@ def narrate(user_text: str, facts: List[str], language: str, state: str = "",
     body = "User asked: " + user_text + "\n\nFACTS:\n" + "\n".join(f"- {f}" for f in facts)
     if state:
         body += "\n\nCurrent state:\n" + state
-    messages = [{"role": "system", "content": NARRATE_PROMPT.format(language=_LANGS.get(language, language))},
+    # empieza con el mismo prompt fijo que parse_intent: Ollama guarda una sola caché y así
+    # redactar no la pisa (el siguiente mensaje del usuario sigue sin reprocesar ese prefijo)
+    messages = [{"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": NARRATE_PROMPT.format(language=_LANGS.get(language, language))},
                 {"role": "user", "content": body}]
     try:   # JSON: en texto libre qwen3 a veces escribe su razonamiento ("Okay, let's tackle this...")
         raw = _chat(messages, fmt=_REPLY_SCHEMA, model=model, timeout=config.OLLAMA_NARRATE_TIMEOUT,

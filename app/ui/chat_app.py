@@ -73,6 +73,8 @@ class ChatApp:
         self.tips = []            # frases sugeridas según el paso actual
         self.dd_items = []        # autocompletado visible
         self.dd_index = -1
+        self._drafts = {}         # burbujas provisionales que la respuesta redactada reemplaza
+        self._draft_seq = 0
 
         self._build_ui()
         threading.Thread(target=self._check_ollama, daemon=True).start()
@@ -263,9 +265,11 @@ class ChatApp:
         bubble = ctk.CTkFrame(row, fg_color=CARD_BG, border_color=BORDER,
                               border_width=1, corner_radius=10)
         bubble.pack(side="left")
-        ctk.CTkLabel(bubble, text=text, font=(FONT, 12), text_color=color,
-                     wraplength=WRAP, justify="left").pack(padx=12, pady=8)
+        label = ctk.CTkLabel(bubble, text=text, font=(FONT, 12), text_color=color,
+                             wraplength=WRAP, justify="left")
+        label.pack(padx=12, pady=8)
         self._scroll_bottom()
+        return label
 
     def _card(self, title: str, accent: str) -> ctk.CTkFrame:
         row = ctk.CTkFrame(self.chat, fg_color="transparent")
@@ -323,6 +327,24 @@ class ChatApp:
     def say(self, text: str):
         color = AMBER if text.startswith("⚠") else TEXT
         self.root.after(0, lambda: self._agent_bubble(text, color))
+
+    def draft(self, text: str) -> int:
+        """Burbuja que se muestra ya y luego se reemplaza (revise) por la respuesta redactada."""
+        self._draft_seq += 1
+        key = self._draft_seq
+
+        def build():
+            self._drafts[key] = self._agent_bubble(text)
+        self.root.after(0, build)
+        return key
+
+    def revise(self, key: int, text: str):
+        def _update():
+            label = self._drafts.pop(key, None)
+            if label is not None and label.winfo_exists():   # el chat pudo limpiarse entretanto
+                label.configure(text=text)
+                self._scroll_bottom()
+        self.root.after(0, _update)
 
     def status(self, text: str):
         self._set_status(text, AMBER)
