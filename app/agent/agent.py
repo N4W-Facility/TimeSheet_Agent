@@ -101,6 +101,19 @@ PERIOD_RE = re.compile(r"\d|semana|week|\bmes\b|month|hoy|today|hoje|ayer|yester
                        + r")\b")
 # "Lee mis horas…" es siempre leer de Outlook (el modelo a veces lo toma por resumen o gráfica)
 READ_RE = re.compile(r"\b(lee|leer|leeme|leelas|leelo|relee|releer|read|reread|ler|leia|releia|reler)\b")
+# "Lee", un periodo, Outlook u horas: sin nada de eso, un read_hours del modelo es una confusión
+READ_HINT_RE = re.compile(r"\b(outlook|horas?|hours?)\b")
+# "¿En qué proyectos estoy trabajando?" → mis proyectos (sin LLM: el modelo pequeño lo tomaba por leer horas)
+MY_PROJECTS_RE = re.compile(
+    r"^((cuales|que) (son )?|muestrame |dime |ver |(show|tell)( me)? |list |(what|which) are |quais (sao )?|mostre )?"
+    r"(mis|my|os meus|meus) (proyectos|projects|projetos)$"
+    r"|\b(en|con) (que|cuales) proyectos (estoy|trabajo|ando)"
+    r"|\bque proyectos (tengo|estoy|trabajo|llevo)\b"
+    r"|\bproyectos en (los )?que (trabajo|estoy)\b"
+    r"|\b(which|what) projects (am i|do i|i am|i'm)\b"
+    r"|\bprojects (i'm|i am|am i) working on\b"
+    r"|\b(em )?(que|quais) projetos (estou|trabalho|tenho)\b"
+    r"|\bprojetos em que (trabalho|estou)\b")
 # "crea la categoría de SE3501": el proyecto se valida y se agrega (aunque no diga "trabajo en")
 CATEGORY_RE = re.compile(r"\bcategor")
 # Pide releer a propósito: no se pregunta "¿lo vuelvo a leer?"
@@ -296,6 +309,12 @@ class Agent:
             self._remember("user", text)
             self.do_help()
             return
+        projects_lang = self._my_projects_lang(text)
+        if projects_lang:
+            self._set_lang(projects_lang)
+            self._remember("user", text)
+            self._run(text, llm.Intent(action="my_projects", language=projects_lang))
+            return
         lang = i18n.detect_lang(text)
         state = self._context()
         if lang:
@@ -311,6 +330,8 @@ class Agent:
         if (intent.action in ("hours_summary", "show_chart") and not intent.project
                 and READ_RE.search(suggest._norm(text))):
             intent.action = "read_hours"
+        if intent.action == "read_hours" and not self._asks_to_read(text):
+            intent.action, intent.reply = "clarify", ""     # el modelo adivinó: se vuelve a preguntar
         if CATEGORY_RE.search(suggest._norm(text)) and (any(database.extract_codes(text, self.status))
                                                          or intent.project):
             intent.action = "project_category"
@@ -460,6 +481,19 @@ class Agent:
         if re.search(r"\b(puedes|podes|sabes|hacer|ayuda|ayudar|ayudas|que)\b", norm):
             return "es"
         return "en"
+
+    def _my_projects_lang(self, text: str) -> Optional[str]:
+        """Idioma de "¿en qué proyectos trabajo?" (sin códigos), o None si no lo es."""
+        norm = " ".join(re.sub(r"[¿?¡!.,]", " ", suggest._norm(text)).split())
+        if not MY_PROJECTS_RE.search(norm) or any(database.extract_codes(text, self.status)):
+            return None
+        return "pt" if "projetos" in norm else "es" if "proyectos" in norm else "en"
+
+    @staticmethod
+    def _asks_to_read(text: str) -> bool:
+        """El mensaje pide leer: "lee…", un periodo, Outlook u horas."""
+        norm = suggest._norm(text)
+        return bool(READ_RE.search(norm) or PERIOD_RE.search(norm) or READ_HINT_RE.search(norm))
 
     def _context(self) -> str:
         """Estado actual para el LLM: así puede preguntar con opciones que tengan sentido."""

@@ -204,9 +204,11 @@ def test_read_without_projects_asks_for_codes(tmp_path, monkeypatch):
     assert agent.awaiting_codes
 
 
-def test_read_asks_period(env):
-    _, _, _, send = env
-    assert send("read_hours").startswith("Which period?")
+def test_read_asks_period(env, monkeypatch):
+    agent, ui, _, _ = env
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent("read_hours"))
+    agent.handle("read my hours")
+    assert ui.said[-1].startswith("Which period?")
 
 
 def test_workday_requires_read_first(env):
@@ -1119,7 +1121,7 @@ def test_spanish_message_answered_in_spanish_even_if_model_says_en(env, monkeypa
         seen['state'] = state
         return _intent("my_projects", reply="Here are your projects")
     monkeypatch.setattr(llm, "parse_intent", parse)
-    agent.handle("en qué proyectos estoy trabajando")
+    agent.handle("muéstrame la lista de proyectos con su estado")
     assert agent.lang == "es" and 'language = "es"' in seen['state']
     assert "Here are your projects" not in ui.said                  # frase del modelo en otro idioma: fuera
     assert ui.said[0] == "¡Claro! Actualmente estás trabajando en 2 proyectos:"
@@ -1136,3 +1138,39 @@ def test_short_message_without_clear_words_keeps_language(env, monkeypatch):
     monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent("other", reply=""))
     agent.handle("OF0104")
     assert agent.lang == "es" and ui.said[-1] == i18n.tr("off_topic", "es")
+
+
+@pytest.mark.parametrize("text,lang", [
+    ("En qué proyectos estoy trabajando", "es"), ("¿En qué proyectos trabajo?", "es"),
+    ("¿Cuáles son mis proyectos?", "es"), ("mis proyectos", "es"), ("¿qué proyectos tengo?", "es"),
+    ("What projects am I working on?", "en"), ("which are my projects", "en"), ("my projects", "en"),
+    ("Em quais projetos estou trabalhando?", "pt"), ("quais são os meus projetos?", "pt"),
+])
+def test_my_projects_without_llm(env, monkeypatch, text, lang):
+    agent, ui, pipe, send = env
+    send("read_hours", month="2026-09")                     # periodo ya leído: no debe preguntar releer
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: pytest.fail("my projects must not call the LLM"))
+    agent.handle(text)
+    assert agent.lang == lang and agent.pending_reread is None
+    assert ui.cards[-1][0] == i18n.tr("t_my_projects", lang, n=2)
+    assert i18n.tr("my_projects_intro", lang, n=2) in ui.said
+
+
+def test_my_projects_shortcut_skips_project_edits():
+    from agent.agent import Agent
+    agent = Agent.__new__(Agent)
+    agent.status = {}
+    for text in ("agrega OF0123 a mis proyectos", "remove FS4302 from my projects",
+                 "importa mis proyectos desde mi Excel", "ya no trabajo en SE3202", "lee mis horas"):
+        assert agent._my_projects_lang(text) is None
+
+
+def test_read_guess_without_read_words_asks_again(env, monkeypatch):
+    agent, ui, pipe, send = env
+    send("read_hours", month="2026-09")
+    monkeypatch.setattr(llm, "parse_intent",
+                        lambda t, h, **k: _intent("read_hours", month="2026-09", language="es", reply="Ya leí"))
+    n = len(ui.cards)
+    agent.handle("cuéntame algo de lo que hago")
+    assert agent.pending_reread is None and len(ui.cards) == n
+    assert ui.said[-1] == i18n.tr("clarify", "es") and "Ya leí" not in ui.said

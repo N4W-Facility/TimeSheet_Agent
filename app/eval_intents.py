@@ -81,6 +81,9 @@ CASES = [
     ("remove FS4302 from my projects", "remove_project", {"project": "FS4302"}),
     ("¿cuáles son mis proyectos?", "my_projects", {}),
     ("quais são os meus projetos?", "my_projects", {}),
+    ("¿En qué proyectos estoy trabajando?", "my_projects", {}),
+    ("what projects am I working on?", "my_projects", {}),
+    ("em quais projetos estou trabalhando?", "my_projects", {}),
     ("importa mis proyectos desde mi Excel", "import_projects", {}),
     ("import my projects from an Excel file", "import_projects", {}),
     # hours_summary
