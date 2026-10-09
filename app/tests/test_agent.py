@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import workflows  # noqa: E402
 from agent import agent as agent_mod  # noqa: E402
-from agent import llm, suggest  # noqa: E402
+from agent import i18n, llm, suggest  # noqa: E402
 from agent.settings import Settings  # noqa: E402
 from core import timesheet  # noqa: E402
 from core.history import History  # noqa: E402
@@ -220,7 +220,9 @@ def test_step_by_step_flow_with_mandatory_prorate(env):
     send("read_hours", month="2026-09")
     assert agent.loaded.virtual == ["VIRT1"]
     assert any(t.startswith("Hours 2026-09") for t, _ in ui.cards)
-    assert "must be prorated" in ui.said[-2]        # [-1] = pista extra (objetivos/análisis)
+    assert "dedication to P100" in ui.said[-1]      # una pregunta a la vez: el paso sale después
+    agent.handle("skip")
+    assert "must be prorated" in ui.said[-1]
 
     # Workday sin prorrateo → bloqueado
     assert "must be prorated" in send("fill_workday")
@@ -239,7 +241,7 @@ def test_workday_fills_any_read_period(env):
     agent, ui, pipe, send = env
     pipe.virtual = []
     send("read_hours", start_date="2026-09-07", end_date="2026-09-08")      # dos días
-    assert "fill Workday with the hours I read" in ui.said[-2]
+    assert "fill Workday with the hours I read" in agent.step_after_targets
     assert "Workday filled for 2026-09-07" in send("fill_workday")
     assert pipe.filled.endswith("ts_20260907.csv") and pipe.weeks_only is None
     assert "③ Workday ✓" in agent.progress()
@@ -343,8 +345,8 @@ def test_suggestions_follow_the_steps(env):
 
     send("read_hours", month="2026-09")
     assert agent.suggestions()[:2] == ["same", "skip"]      # pregunta de dedicación abierta
-    assert "“prorate the hours for" in ui.said[-2]          # el mensaje cita la frase sugerida
     agent.handle("skip")
+    assert "“prorate the hours for" in ui.said[-1]          # el siguiente paso cita la frase sugerida
     assert agent.suggestions()[0] == suggest.phrase("prorate", "en", datetime(2026, 9, 1))
     assert "② Prorate ●" in agent.progress()
 
@@ -390,8 +392,9 @@ def test_onboarding_asks_and_validates_codes(tmp_path, monkeypatch):
     assert "which projects are you working on" in ui.said[-1]
 
     agent.handle("I work on p100, VIRT1, P200 and ZZ9999")      # sin LLM
-    checked = next(t for t in ui.said if t.startswith("Checked"))
-    assert "P200 is closed" in checked and "ZZ9999 does not exist" in checked
+    assert any(t.startswith("I'll check the status") for t in ui.said)
+    assert any("P200 closed on 2026-08-31" in t and "Operations team to reopen" in t for t in ui.said)
+    assert any("ZZ9999 doesn't exist" in t for t in ui.said)
     assert ui.decisions[-1].preselected == ui.decisions[-1].options
     assert agent.store.my_projects() == ['P100', 'VIRT1']
     assert pipe.categories == ['P100', 'VIRT1']
@@ -452,7 +455,30 @@ def test_target_questions_after_reading(env):
     assert "dedication to P100" in ui.said[-1]                  # VIRT1 se prorratea: no se pregunta
     agent.handle("30%")
     assert agent.store.targets()['P100']['pct'] == 30
-    assert not agent.pending_targets and "You can also ask" in ui.said[-1]
+    assert not agent.pending_targets and "must be prorated" in ui.said[-1]   # y ahora el siguiente paso
+
+
+@pytest.mark.parametrize("status, closed, expected", [
+    ("closed", "2025-06-30", "cerró el 2025-06-30, así que no puedes cargarle tiempo"),
+    ("closed", None, "está cerrado, así que no puedes cargarle tiempo"),
+    ("not_opened", None, "todavía no ha sido abierto"),
+])
+def test_add_unavailable_project_explains_and_points_to_operations(tmp_path, monkeypatch, status, closed, expected):
+    monkeypatch.setattr(Settings, "save", lambda self: None)
+    ui, pipe = FakeUI(), FakePipe(tmp_path)
+    pipe.status['P200'].update(status=status, closed=closed)
+    agent = agent_mod.Agent(ui, Settings(), store=History(str(tmp_path / "h.db")))
+    agent._pipeline = lambda: pipe
+    agent.lang = "es"
+    agent._ensure_global()
+    agent.text = "agrega el proyecto P200"
+    ui.said.clear()
+    agent._add_codes(["P200"])
+    assert ui.said[0].startswith("Voy a validar el estado")
+    msg = ui.said[1]
+    assert "P200" in msg and expected in msg and "equipo de Operaciones del N4W Facility" in msg
+    assert ("reapertura" if status == "closed" else "su apertura") in msg
+    assert "P200" not in agent.store.my_projects() and not ui.decisions
 
 
 def test_add_and_remove_projects_by_chat(env):
@@ -643,6 +669,23 @@ def test_add_project_reports_created_and_existing_categories(env):
     assert "Created: P100" in said and "Already in Outlook (kept as they are): P300 | old name" in said
 
 
+def test_create_category_assumes_project_validates_and_offers_meetings(env, monkeypatch):
+    agent, ui, pipe, send = env
+    monkeypatch.setattr(llm, "parse_intent",                         # el modelo se confunde de acción
+                        lambda t, h, **k: llm.Intent(action="categorize_meetings", language="es"))
+    agent.status = pipe.status                                       # códigos de prueba (P300) no tienen forma real
+    agent.handle("crea la categoría para el proyecto P300")
+    assert "P300" in agent.store.my_projects() and "P300" in pipe.categories
+    assert not ui.decisions                                          # sin tarjeta: se asume que trabaja en él
+    assert any(t.startswith("Voy a validar el estado") for t in ui.said)
+    assert "reuniones sin categoría" in ui.said[-1] and "categorizar mis reuniones" in ui.said[-1]
+
+    ui.said.clear()
+    agent.handle("crea la categoría del proyecto P200")              # cerrado: no se crea nada
+    assert "P200" not in agent.store.my_projects() and "P200" not in pipe.categories
+    assert "cerró el 2026-08-31" in ui.said[-1] and "Operaciones del N4W Facility" in ui.said[-1]
+
+
 def test_categorize_meetings_suggests_and_assigns(env):
     agent, ui, pipe, send = env
     ui.choice = lambda d: {r['label']: r['default'] for r in d.context['rows'] if r['default']}
@@ -828,7 +871,7 @@ def test_greeting_shows_status_without_llm(env, monkeypatch):
     monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: pytest.fail("greeting must not call the LLM"))
     agent.handle("¡Hola!")
     assert agent.lang == "es" and "¡Hola! Así vas:" in ui.said
-    assert ui.cards[-1][0].startswith("Status ") and "lee mis horas de" in ui.said[-1]
+    assert ui.cards[-1][0].startswith("Estado ") and "lee mis horas de" in ui.said[-1]
 
 
 @pytest.mark.parametrize("text,lang", [
@@ -842,7 +885,7 @@ def test_help_card_without_llm(env, monkeypatch, text, lang):
     agent.handle(text)
     assert agent.lang == lang
     title, detail = ui.cards[-1]
-    assert title == "What I can do" and "N4W Facility" in detail and "XX05" in detail
+    assert title == i18n.tr("t_help", lang) and "N4W Facility" in detail and "XX05" in detail
     assert "{" not in detail and "👆" in ui.said[-1]
 
 
@@ -893,7 +936,7 @@ def test_llm_help_intent_shows_card(env, monkeypatch):
     monkeypatch.setattr(llm, "parse_intent",
                         lambda t, h, **k: llm.Intent(action="help", language="es", reply="Te cuento"))
     agent.handle("cuéntame de ti, qué funciones tienes")
-    assert ui.cards[-1][0] == "What I can do" and "Te cuento" not in ui.said
+    assert ui.cards[-1][0] == "Lo que puedo hacer" and "Te cuento" not in ui.said
 
 
 def test_clarify_only_offered_for_bare_messages():
@@ -912,17 +955,30 @@ def test_narrated_reply_replaces_fixed_messages(env, monkeypatch):
 
     def narrate(text, facts, language, state=""):
         seen.update(text=text, facts=facts, language=language, state=state)
-        return "Septiembre quedó leído. ¿Prorrateamos?"
+        return "Septiembre quedó leído."
     monkeypatch.setattr(llm, "narrate", narrate)
     send("read_hours", month="2026-09")
-    assert ui.said[-2] == "Septiembre quedó leído. ¿Prorrateamos?"
+    assert ui.said[-2] == "Septiembre quedó leído."
     assert "dedication to P100" in ui.said[-1]                         # la pregunta pendiente sale tal cual
-    assert not any("prorate the hours" in t for t in ui.said)          # el mensaje fijo no sale
-    assert any("prorate the hours" in f for f in seen["facts"])        # pero el modelo lo recibe
+    assert not any("prorate the hours" in t for t in ui.said)          # el paso sale tras la dedicación
+    assert not any("prorate the hours" in f for f in seen["facts"])    # y el modelo no lo redacta
+    assert any(f.startswith("✓ Hours read for 2026-09") for f in seen["facts"])
     assert any(f.startswith("(card already shown) Projects 2026-09") for f in seen["facts"])
     assert ui.cards                                                     # las tarjetas salen igual
     assert "Period read: 2026-09" in seen["state"]
-    assert {"role": "assistant", "content": "Septiembre quedó leído. ¿Prorrateamos?"} in agent.chat_history
+    assert {"role": "assistant", "content": "Septiembre quedó leído."} in agent.chat_history
+
+
+def test_next_step_goes_last_verbatim_and_model_reply_is_not_shown(env, monkeypatch):
+    agent, ui, pipe, send = env
+    agent.store.set_target('P100', 30, None)                             # sin preguntas pendientes
+    seen = {}
+    monkeypatch.setattr(llm, "narrate", lambda text, facts, *a, **k: seen.update(facts=facts) or "Leí septiembre.")
+    send("read_hours", month="2026-09", reply="Voy a leer tus horas de septiembre.")
+    assert "Voy a leer" not in " ".join(ui.said)                         # sin eco de la petición
+    assert ui.said[-2:] == ["Leí septiembre.", agent.step_after_targets]
+    assert "must be prorated" in ui.said[-1]
+    assert not any("must be prorated" in f for f in seen["facts"])
 
 
 def test_draft_shows_fixed_messages_now_and_narration_replaces_them(env, monkeypatch):
@@ -932,7 +988,7 @@ def test_draft_shows_fixed_messages_now_and_narration_replaces_them(env, monkeyp
     ui.revise = lambda key, text: revised.append((key, text))
     monkeypatch.setattr(llm, "narrate", lambda *a, **k: "Septiembre quedó leído.")
     send("read_hours", month="2026-09")
-    assert "prorate the hours" in drafts[0]                              # fijos al momento, sin esperar al modelo
+    assert "Hours read for 2026-09" in drafts[0]                         # fijos al momento, sin esperar al modelo
     assert revised == [(1, "Septiembre quedó leído.")]
     assert not any("prorate the hours" in t for t in ui.said)          # no se repiten como burbuja aparte
     assert "dedication to P100" in ui.said[-1]                         # la pregunta pendiente sale tal cual
@@ -995,7 +1051,7 @@ def test_read_verb_is_always_a_read(env, monkeypatch):
     agent, ui, pipe, send = env
     monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent("hours_summary", month="2026-09"))
     agent.handle("lee mis horas de septiembre")
-    assert any(t.startswith("Hours") and "(Outlook)" in t for t, _ in ui.cards)
+    assert any(t.startswith("Horas") and "(Outlook)" in t for t, _ in ui.cards)
 
 
 def test_reread_asks_first(env, monkeypatch):
@@ -1041,3 +1097,42 @@ def test_release_shortens_keep_alive_only_if_model_loaded(monkeypatch):
     monkeypatch.setattr(llm, "_client", lambda timeout=None: FakeClient([llm.current_model()]))
     llm.release()
     assert calls[0]["keep_alive"] == llm.config.OLLAMA_KEEP_ALIVE_ON_EXIT
+
+
+# ── idioma y "mis proyectos" ─────────────────────────────────
+
+@pytest.mark.parametrize("text,lang", [
+    ("en qué proyectos estoy trabajando", "es"), ("dime mis proyectos", "es"), ("resumen de octubre", "es"),
+    ("which are my projects?", "en"), ("summary of October", "en"),
+    ("quais são meus projetos", "pt"), ("resumo de outubro", "pt"),
+    ("OF0104", None), ("...", None), ("agosto", None),
+])
+def test_detect_lang(text, lang):
+    assert i18n.detect_lang(text) == lang
+
+
+def test_spanish_message_answered_in_spanish_even_if_model_says_en(env, monkeypatch):
+    agent, ui, pipe, send = env
+    seen = {}
+
+    def parse(t, h, state="", **k):
+        seen['state'] = state
+        return _intent("my_projects", reply="Here are your projects")
+    monkeypatch.setattr(llm, "parse_intent", parse)
+    agent.handle("en qué proyectos estoy trabajando")
+    assert agent.lang == "es" and 'language = "es"' in seen['state']
+    assert "Here are your projects" not in ui.said                  # frase del modelo en otro idioma: fuera
+    assert ui.said[0] == "¡Claro! Actualmente estás trabajando en 2 proyectos:"
+    title, table = ui.cards[0]
+    assert title == "Mis proyectos (2)"
+    assert table.split()[:2] == ["Código", "Proyecto"]
+    assert "Project" in table and "activo" in table and "se prorratea" in table   # nombre y estado
+    assert any("ya no trabajo en VIRT1" in t for t in ui.said)
+
+
+def test_short_message_without_clear_words_keeps_language(env, monkeypatch):
+    agent, ui, pipe, send = env
+    agent.lang = "es"
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent("other", reply=""))
+    agent.handle("OF0104")
+    assert agent.lang == "es" and ui.said[-1] == i18n.tr("off_topic", "es")

@@ -101,6 +101,8 @@ PERIOD_RE = re.compile(r"\d|semana|week|\bmes\b|month|hoy|today|hoje|ayer|yester
                        + r")\b")
 # "Lee mis horas…" es siempre leer de Outlook (el modelo a veces lo toma por resumen o gráfica)
 READ_RE = re.compile(r"\b(lee|leer|leeme|leelas|leelo|relee|releer|read|reread|ler|leia|releia|reler)\b")
+# "crea la categoría de SE3501": el proyecto se valida y se agrega (aunque no diga "trabajo en")
+CATEGORY_RE = re.compile(r"\bcategor")
 # Pide releer a propósito: no se pregunta "¿lo vuelvo a leer?"
 AGAIN_RE = re.compile(r"\b(nuevamente|de nuevo|otra vez|vuelve a|volver a|relee|releer|again|reread"
                       r"|novamente|de novo|outra vez|reler|releia)\b")
@@ -114,12 +116,13 @@ class _Collect:
     UI de una acción: retiene sus mensajes para que el modelo redacte la respuesta.
     Tarjetas y gráficas salen al momento; antes de una pregunta (decide/approve/...)
     los mensajes retenidos salen tal cual, porque el usuario necesita el contexto.
-    Los avisos ⚠ salen siempre tal cual (en ámbar).
+    Los avisos ⚠ salen siempre tal cual (en ámbar). El siguiente paso o la pregunta
+    pendiente (next) sale tal cual al final, después de la redacción: una sola.
     """
     BLOCKING = {"decide", "approve", "confirm_send", "pick_file"}
 
     def __init__(self, ui: AgentUI):
-        self.ui, self.said, self.shown = ui, [], []
+        self.ui, self.said, self.shown, self.tail = ui, [], [], None
 
     def say(self, text: str):
         if text.startswith("⚠"):
@@ -127,6 +130,15 @@ class _Collect:
             self.shown.append(f"(already shown) {text}")
         else:
             self.said.append(text)
+
+    def lead(self, text: str):
+        """Frase que abre la respuesta: sale ya, antes de las tarjetas."""
+        self.ui.say(text)
+        self.shown.append(f"(already shown) {text}")
+
+    def next(self, text: str):
+        """Siguiente paso o pregunta pendiente: gana el último (una pregunta va después del paso)."""
+        self.tail = text
 
     def show(self, title: str, detail: str):
         self.ui.show(title, detail)
@@ -148,6 +160,14 @@ class _Collect:
         return ask
 
 
+def _table(rows: List[dict]) -> str:
+    """Tabla de texto alineada a la izquierda (pandas alinea el texto a la derecha y se lee mal)."""
+    cols = list(rows[0])
+    width = {c: max(len(str(c)), *(len(str(r[c])) for r in rows)) for c in cols}
+    line = lambda r: "  ".join(str(r[c]).ljust(width[c]) for c in cols).rstrip()  # noqa: E731
+    return "\n".join([line({c: c for c in cols})] + [line(r) for r in rows])
+
+
 class Agent:
     def __init__(self, ui: AgentUI, settings: Settings, store: History = None):
         self.ui = ui
@@ -159,6 +179,7 @@ class Agent:
         self.global_checked = False                 # base global descargada en esta sesión
         self.status: dict = {}                      # código → estado en N4W_Task_Details
         self.pending_targets: List[dict] = []       # dedicaciones por preguntar
+        self.step_after_targets = ""                # siguiente paso, tras las dedicaciones
         self.awaiting_codes = False                 # se preguntó "¿en qué proyectos trabajas?"
         self.pending_reread = None                  # (texto, intent) de "¿lo vuelvo a leer?"
         self.text = ""                              # último mensaje (para extraer códigos)
@@ -172,6 +193,10 @@ class Agent:
 
     def m(self, key: str, **kw) -> str:
         return i18n.tr(key, self.lang, **kw)
+
+    def _next(self, text: str):
+        """Siguiente paso / pregunta: tal cual, al final de la respuesta (ver _Collect.next)."""
+        getattr(self.ui, "next", self.ui.say)(text)
 
     def p(self, key: str, month=None, code: str = None) -> str:
         """Frase sugerida en el idioma del usuario (ver agent/suggest.py)."""
@@ -271,8 +296,13 @@ class Agent:
             self._remember("user", text)
             self.do_help()
             return
+        lang = i18n.detect_lang(text)
+        state = self._context()
+        if lang:
+            name = llm._LANGS[lang]
+            state += f"\n- The user writes in {name}: language = \"{lang}\" and the reply in {name}."
         try:
-            intent = llm.parse_intent(text, self.chat_history, state=self._context())
+            intent = llm.parse_intent(text, self.chat_history, state=state)
         except Exception as e:
             self.ui.log(traceback.format_exc())
             self.ui.say(self.m("llm_down", err=e))
@@ -281,9 +311,16 @@ class Agent:
         if (intent.action in ("hours_summary", "show_chart") and not intent.project
                 and READ_RE.search(suggest._norm(text))):
             intent.action = "read_hours"
+        if CATEGORY_RE.search(suggest._norm(text)) and (any(database.extract_codes(text, self.status))
+                                                         or intent.project):
+            intent.action = "project_category"
+        if lang and intent.language != lang:      # el modelo se equivocó de idioma: su frase no sirve
+            intent.reply = ""
+        # sin palabras claras (un código, "ok"): un mensaje corto no cambia el idioma de la charla
+        intent.language = lang or (intent.language if len(text.split()) >= 3 else self.lang)
         self._set_lang(intent.language)
         self._remember("user", text)
-        if intent.reply and intent.action != "help":
+        if intent.reply and intent.action in ("clarify", "other"):   # lo demás lo cuentan la acción y la redacción
             self.ui.say(intent.reply)
             self._remember("assistant", intent.reply)
         self.ui.log(f"[intent] {intent}  ({llm.last_timing})")
@@ -296,6 +333,8 @@ class Agent:
                 self.ui.say(self.m("clarify"))
             return
         if intent.action == "other":
+            if not intent.reply:
+                self.ui.say(self.m("off_topic"))
             return
         if intent.action in NEEDS_PROJECTS and not self.store.projects_initialized():
             self._ask_projects()
@@ -365,32 +404,29 @@ class Agent:
         return False
 
     def _narrate(self, text: str, collect: "_Collect"):
-        """Respuesta redactada por el modelo con lo que dijo la acción; si no, los mensajes fijos."""
-        # una pregunta que espera respuesta (dedicación de un proyecto) sale tal cual, al final
-        ask = [collect.said.pop()] if self.pending_targets and collect.said else []
-        if not collect.said:
-            collect.said = ask
-            return collect.flush()
-        status = getattr(self.ui, "status", None)
-        if status:
-            status("Writing reply...")
-        # la UI que lo soporta muestra ya los mensajes fijos y luego los cambia por la redacción
-        draft = getattr(self.ui, "draft", None)
-        shown = draft("\n\n".join(collect.said)) if draft else None
-        reply = llm.narrate(text, collect.shown + collect.said, self.lang, self._context())
-        self.ui.log(f"[narrate] {llm.last_timing}")
-        if reply:
-            if shown is not None:
-                self.ui.revise(shown, reply)
-            else:
-                self.ui.say(reply)
-            self._remember("assistant", reply)
-            collect.said = ask
-        elif shown is not None:
-            collect.said = ask
-        else:
-            collect.said += ask
+        """Resumen redactado por el modelo con lo que dijo la acción (si no, los mensajes fijos) y, al final, tal cual, el siguiente paso."""
+        if collect.said:
+            status = getattr(self.ui, "status", None)
+            if status:
+                status("Writing reply...")
+            # la UI que lo soporta muestra ya los mensajes fijos y luego los cambia por la redacción
+            draft = getattr(self.ui, "draft", None)
+            shown = draft("\n\n".join(collect.said)) if draft else None
+            reply = llm.narrate(text, collect.shown + collect.said, self.lang, self._context())
+            self.ui.log(f"[narrate] {llm.last_timing}")
+            if reply:
+                if shown is not None:
+                    self.ui.revise(shown, reply)
+                else:
+                    self.ui.say(reply)
+                self._remember("assistant", reply)
+                collect.said = []
+            elif shown is not None:
+                collect.said = []
         collect.flush()
+        if collect.tail:
+            self.ui.say(collect.tail)
+            self._remember("assistant", collect.tail)
 
     def _set_lang(self, lang: Optional[str]):
         self.lang = lang or self.lang
@@ -459,7 +495,7 @@ class Agent:
         keys = ["read", "categorize", "edit", "prorate", "workday", "n4w", "status", "close",
                 "week_hours", "summary", "compare", "alerts", "averages", "target", "chart",
                 "my_projects", "add_project", "remove_project", "import_excel", "sync"]
-        self.ui.show("What I can do", self.m("help_card", **{k: self.p(k, month).strip() for k in keys}))
+        self.ui.show(self.m("t_help"), self.m("help_card", **{k: self.p(k, month).strip() for k in keys}))
         self.ui.say(self.m("help_short", next=self.suggestions()[0]))
 
     # ── al abrir la app ──────────────────────────────────────
@@ -624,9 +660,14 @@ class Agent:
             parts.append(self.m("cats_existing", names=", ".join(res['existing'])))
         return " ".join(parts)
 
-    def _add_codes(self, codes: List[str], unknown: List[str] = ()):
-        """Verifica los códigos con la base global y confirma en una tarjeta cuáles agregar."""
+    def _add_codes(self, codes: List[str], unknown: List[str] = (), confirm: bool = True) -> List[str]:
+        """
+        Verifica los códigos con la base global y confirma en una tarjeta cuáles agregar
+        (confirm=False: los activos se agregan sin preguntar). Devuelve los que tienen categoría.
+        """
         mine = set(self.store.my_projects())
+        lead = getattr(self.ui, "lead", self.ui.say)     # tal cual: el modelo no los redacta
+        lead(self.m("checking_codes"))
         notes, labels, already = [], {}, []
         for code in codes:
             info = self.status.get(code.upper())
@@ -634,12 +675,16 @@ class Agent:
                 notes.append(self.m("frag_already", code=code))
                 already.append(code)
             elif not info:
-                notes.append(self.m("frag_missing", code=code))
-            elif info['status'] != 'active':
-                notes.append(self.m("frag_closed", code=code))
+                lead(self.m("code_missing", code=code))
+            elif info['status'] == 'closed':
+                lead(self.m("code_closed", code=code, date=info['closed'])
+                     if info.get('closed') else self.m("code_closed_nodate", code=code))
+            elif info['status'] == 'not_opened':
+                lead(self.m("code_not_opened", code=code))
             else:
                 labels[self._label(code)] = code
-        notes += [self.m("frag_missing", code=c) for c in unknown]
+        for code in unknown:
+            lead(self.m("code_missing", code=code))
         if notes:
             self.ui.say(self.m("codes_checked", details="; ".join(notes)))
         if already:                                 # ya en la lista: igual se revisa su categoría
@@ -647,17 +692,20 @@ class Agent:
             if cats:
                 self.ui.say(cats)
         if not labels:
-            return
-        chosen = self.ui.decide(Decision(
-            kind='add_projects', question="Add to my projects? (creates their Outlook categories)",
-            options=list(labels), multi=True, preselected=list(labels)))
-        if not chosen:
-            self.ui.say(self.m("cancelled"))
-            return
+            return already
+        chosen = list(labels)
+        if confirm:
+            chosen = self.ui.decide(Decision(
+                kind='add_projects', question=self.m("q_add_projects"),
+                options=list(labels), multi=True, preselected=list(labels)))
+            if not chosen:
+                self.ui.say(self.m("cancelled"))
+                return already
         codes = [labels[c] for c in chosen]
         self.store.add_projects(codes)
         cats = self._create_categories(codes)
         self.ui.say(self.m("projects_added", codes=", ".join(codes), cats=cats))
+        return already + codes
 
     def review_projects(self, charged: Optional[pd.DataFrame] = None):
         """
@@ -679,10 +727,10 @@ class Agent:
         notes = [self.m(f"frag_r_{p['reason']}", code=p['code'], months=p.get('months', ''),
                         hours=p.get('hours', '')) for p in props]
         self.ui.say(self.m("review_intro", details="; ".join(notes)))
-        labels = {f"{'Remove' if p['action'] == 'remove' else 'Add'} "
+        labels = {f"{self.m('opt_remove' if p['action'] == 'remove' else 'opt_add')} "
                   f"{self._label(p['code'], p['detail'])}": p for p in props}
         chosen = self.ui.decide(Decision(
-            kind='review_projects', question="Changes to my projects",
+            kind='review_projects', question=self.m("q_review_projects"),
             options=list(labels), multi=True, preselected=list(labels)))
         if chosen is None:                          # cerrar = "ahora no" (se volverá a proponer)
             return
@@ -811,15 +859,15 @@ class Agent:
         self.loaded = Loaded(start, end, findings['path'], is_month, virtual)
 
         label = self.loaded.label
-        self.ui.show(f"Hours {label} (Outlook)", workflows.findings_report(findings))
+        self.ui.show(self.m("t_hours_outlook", label=label), workflows.findings_report(findings))
         df = analysis.to_long(findings['timesheet'])
         report, flags = analysis.project_report(
             df, self.store.all_hours(before=start), self.store.targets(), self.status,
             config.ALERT_TARGET_TOLERANCE, self.store.my_projects())
-        self.ui.show(f"Projects {label}", report)
+        self.ui.show(self.m("t_projects_period", label=label), report)
         notes = self._alerts(start, end, df)
         if notes:
-            self.ui.show(f"Alerts {label}", "\n".join(notes))
+            self.ui.show(self.m("t_alerts", label=label), "\n".join(notes))
 
         balance = analysis.by_project(df)
         self.ui.say(self.m("read_done", period=label, total=analysis.h(balance['Hours'].sum()),
@@ -827,7 +875,7 @@ class Agent:
         # lo importante, en pocas frases (el detalle está en las tarjetas)
         invalid = analysis.invalid_hours(df, self.status)     # según fechas de apertura / cierre
         if invalid:
-            self.ui.show("⛔ Hours that cannot be uploaded", analysis.invalid_text(invalid))
+            self.ui.show(self.m("t_blocked"), analysis.invalid_text(invalid))
             self.ui.say(self.m("blocked_projects", codes=", ".join(i['code'] for i in invalid)))
         if flags['off_target']:
             self.ui.say(self.m("off_target", codes=", ".join(flags['off_target'])))
@@ -835,17 +883,18 @@ class Agent:
             self.ui.say(self.m("new_projects", codes=", ".join(flags['new'])))
         self.review_projects(df)                    # cerrados, sin horas, fuera de la lista
         if virtual:
-            self.ui.say(self.m("next_prorate", codes=", ".join(virtual), phrase=self.p("prorate", start)))
+            self.step_after_targets = self.m("next_prorate", codes=", ".join(virtual),
+                                             phrase=self.p("prorate", start))
         else:
-            self.ui.say(self.m("next_workday", phrase=self._workday_phrase()))
+            self.step_after_targets = self.m("next_workday", phrase=self._workday_phrase())
 
         # dedicaciones que faltan: se preguntan en la conversación (las de más horas)
         self.pending_targets = [{'code': c, 'now': float(balance.loc[c, '%'])}
                                 for c in flags['untargeted'][:config.TARGET_QUESTIONS_MAX]]
-        if self.pending_targets:
+        if self.pending_targets:                    # una pregunta a la vez: el paso sale al terminar
             self._ask_target()
         else:
-            self.ui.say(self.m("also_ask", a=self.p("compare", start), b=self.p("alerts", start)))
+            self._next(self.step_after_targets)
 
     # ── preguntas de dedicación (respuestas cortas sin LLM) ──
     def _ask_target(self):
@@ -856,7 +905,7 @@ class Agent:
             if not avg.empty and item['code'] in avg.index else "-"
         asked = item.setdefault('i', None) or 0
         total = asked + len(self.pending_targets)
-        self.ui.say(self.m("ask_target", i=asked + 1, n=total, code=item['code'],
+        self._next(self.m("ask_target", i=asked + 1, n=total, code=item['code'],
                            now=analysis.h(item['now']), avg=avg_txt))
 
     def _answer_target(self, text: str) -> bool:
@@ -867,6 +916,8 @@ class Agent:
         if t in STOP_WORDS:
             self.pending_targets = []
             self.ui.say(self.m("targets_later", phrase=self.p("target", code=item['code'])))
+            if self.step_after_targets:
+                self.ui.say(self.step_after_targets)
             return True
         if t in SKIP_WORDS:
             self._next_target()
@@ -898,9 +949,8 @@ class Agent:
         if self.pending_targets:
             self.pending_targets[0]['i'] = (done.get('i') or 0) + 1
             self._ask_target()
-        elif self.loaded:
-            start = self.loaded.start
-            self.ui.say(self.m("also_ask", a=self.p("compare", start), b=self.p("alerts", start)))
+        elif self.step_after_targets:               # el siguiente paso que quedó al leer
+            self._next(self.step_after_targets)
 
     def do_prorate(self, intent):
         loaded = self._require_loaded(intent.month)
@@ -911,14 +961,14 @@ class Agent:
         loaded.prorated_path = path
         self.store.save(pd.read_csv(path), 'prorated', loaded.start, loaded.end)
         self.store.log_event(loaded.start, loaded.end, 'prorate', ", ".join(loaded.virtual))
-        self.ui.say(self.m("prorate_done", phrase=self.p("workday", loaded.start)))
+        self._next(self.m("prorate_done", phrase=self.p("workday", loaded.start)))
 
     def _guard_upload(self, df: pd.DataFrame, start):
         """Bloquea la subida si hay horas fuera de la vigencia de un proyecto (cerrado, sin abrir, inexistente)."""
         self._ensure_global()
         issues = analysis.invalid_hours(df, self.status)
         if issues:
-            self.ui.show("⛔ Hours that cannot be uploaded", analysis.invalid_text(issues))
+            self.ui.show(self.m("t_blocked"), analysis.invalid_text(issues))
             raise NeedInfo(self.m("upload_blocked", codes=", ".join(i['code'] for i in issues),
                                   phrase=self.p("read", start)))
 
@@ -1042,12 +1092,17 @@ class Agent:
         for code in mine:
             info = self.status.get(code.upper(), {})
             rows.append({
-                'Code': code, 'Description': info.get('description', '')[:32],
-                'Global': analysis.STATUS_LABEL[analysis.global_status(code, self.status)]
-                + (' · prorate' if info.get('prorate') else ''),
-                'Avg %': analysis.h(avg.loc[code, 'Avg %']) if code in avg.index else '-',
-                'Target': analysis.target_label(targets.get(code))})
-        self.ui.show(f"My projects ({len(mine)})", pd.DataFrame(rows).set_index('Code').to_string())
+                self.m("col_code"): code, self.m("col_name"): info.get('description', '')[:50] or '-',
+                self.m("col_status"): self.m(f"st_{analysis.global_status(code, self.status)}")
+                + (f" · {self.m('st_prorate')}" if info.get('prorate') else ''),
+                self.m("col_avg"): analysis.h(avg.loc[code, 'Avg %']) if code in avg.index else '-',
+                self.m("col_target"): analysis.target_label(targets.get(code))})
+        # frases fijas al momento, sin redacción del modelo (la repetía); la frase previa del modelo se omite
+        lead = getattr(self.ui, "lead", self.ui.say)
+        lead(self.m("my_projects_intro", n=len(mine)))
+        self.ui.show(self.m("t_my_projects", n=len(mine)), _table(rows))
+        lead(self.m("my_projects_more", add=self.p("add_project").strip(),
+                    remove=self.p("remove_project", code=mine[-1])))
         self.review_projects()
 
     def do_add_project(self, intent):
@@ -1056,6 +1111,16 @@ class Agent:
         if not known and not unknown:
             raise NeedInfo(self.m("need_codes"))
         self._add_codes(known, unknown)
+
+    def do_project_category(self, intent):
+        """"Crea la categoría de X": se asume que trabaja en X → se valida, se agrega y se crea la categoría."""
+        self._ensure_global()
+        known, unknown = self._codes_in_text(intent)
+        if not known and not unknown:
+            raise NeedInfo(self.m("need_codes"))
+        if self._add_codes(known, unknown, confirm=False):    # luego, si quiere, asignarla a sus reuniones
+            month = self.loaded.start if self.loaded else datetime.now()
+            self._next(self.m("category_next", phrase=self.p("categorize", month)))
 
     def do_remove_project(self, intent):
         self._ensure_global()
@@ -1072,7 +1137,7 @@ class Agent:
         if not labels:
             return
         chosen = self.ui.decide(Decision(
-            kind='remove_projects', question="Remove from my projects? (Outlook categories are kept)",
+            kind='remove_projects', question=self.m("q_remove_projects"),
             options=list(labels), multi=True, preselected=list(labels)))
         if not chosen:
             raise Cancelled()
@@ -1116,7 +1181,7 @@ class Agent:
         shown = groups[:config.CATEGORIZE_MAX_ROWS]
         rows = {f"{g['subject'] or '(no subject)'}  ·  {g['n']}× · {analysis.h(g['hours'])} h": g for g in shown}
         chosen = self.ui.decide(Decision(
-            kind='assign_categories', question=f"Meetings without category {label} — assign a project",
+            kind='assign_categories', question=self.m("q_assign_categories", label=label),
             options=choices, context={'rows': [{'label': k, 'default': hint.get(g['subject'])}
                                                for k, g in rows.items()], 'skip': '— skip —'}))
         if not chosen:
@@ -1125,7 +1190,7 @@ class Agent:
         done = sum(pipe.assign_category(rows[k]['subject'], rows[k]['starts'], cat)
                    for k, cat in chosen.items())
         left = sum(g['n'] for g in groups) - done
-        self.ui.say(self.m("meetings_categorized", n=done, left=left, phrase=self.p("read", start)))
+        self._next(self.m("meetings_categorized", n=done, left=left, phrase=self.p("read", start)))
 
     def do_sync_categories(self, intent):
         mine = self.store.my_projects()
@@ -1208,11 +1273,11 @@ class Agent:
         start, end = self._status_period(intent)
         label = period_label(start, end)
         lines, todo = self._steps_status(start, end)
-        self.ui.show(f"Status {label}", "\n".join(lines))
+        self.ui.show(self.m("t_status", label=label), "\n".join(lines))
         if todo:
-            self.ui.say(self.m("status_next", period=label, n=len(todo), phrase=todo[0]))
+            self._next(self.m("status_next", period=label, n=len(todo), phrase=todo[0]))
         else:
-            self.ui.say(self.m("status_done", period=label, phrase=self.p("compare", start)))
+            self._next(self.m("status_done", period=label, phrase=self.p("compare", start)))
 
     def do_close_check(self, intent):
         """¿Estoy listo para cerrar el mes? Días incompletos, reuniones sin categoría, bloqueos y pasos."""
@@ -1245,7 +1310,7 @@ class Agent:
 
         steps, _ = self._steps_status(start, end)
         lines = [("✓ " if ok else "⚠ ") + text for ok, text in checks] + ["", *steps]
-        self.ui.show(f"Close check {label}", "\n".join(lines))
+        self.ui.show(self.m("t_close_check", label=label), "\n".join(lines))
         issues = sum(not ok for ok, _ in checks)
         self.ui.say(self.m("close_issues", period=label, n=issues) if issues
                     else self.m("close_ready", period=label))
@@ -1305,7 +1370,7 @@ class Agent:
         if not loaded.prorated_path:
             raise NeedInfo(self.m("no_prorate_yet", period=loaded.label, phrase=self.p("prorate", loaded.start)))
         before, after = pd.read_csv(loaded.path), pd.read_csv(loaded.prorated_path)
-        self.ui.show(f"Prorate {loaded.label} — how it was split",
+        self.ui.show(self.m("t_prorate_split", label=loaded.label),
                      analysis.prorate_comparison(before, after, loaded.virtual) + "\n\n"
                      + analysis.prorate_explanation(before, after, loaded.virtual))
 
@@ -1330,7 +1395,7 @@ class Agent:
             return
         start, end = self._analysis_period(intent)
         df = self._history(start, end)
-        self.ui.show(f"Summary {period_label(start, end)}",
+        self.ui.show(self.m("t_summary", label=period_label(start, end)),
                      analysis.balance_text(df, start, end, config.EXPECTED_DAILY_HOURS))
         self._period_charts(df, start, end)
 
@@ -1423,10 +1488,10 @@ class Agent:
             text = analysis.project_text(df, intent.project, targets.get(intent.project))
             if text is None:
                 raise NeedInfo(self.m("unknown_project", code=intent.project))
-            self.ui.show(f"Project {intent.project}", text)
+            self.ui.show(self.m("t_project", code=intent.project), text)
             self._chart(charts.trend_chart(df, intent.project, targets.get(intent.project)))
         else:
-            self.ui.show("Project averages", analysis.averages_text(df, targets))
+            self.ui.show(self.m("t_averages"), analysis.averages_text(df, targets))
             self._chart(charts.months_chart(df))
 
     def do_set_target(self, intent):
@@ -1449,7 +1514,7 @@ class Agent:
         notes = self._alerts(start, end, self._history(start, end))
         label = period_label(start, end)
         if notes:
-            self.ui.show(f"Alerts {label}", "\n".join(notes))
+            self.ui.show(self.m("t_alerts", label=label), "\n".join(notes))
         else:
             self.ui.say(self.m("no_alerts", period=label))
 

@@ -83,10 +83,10 @@ Status and corrections:
 - explain_prorate: why / how the hours were prorated ("why did you prorate like that?").
 My projects (the list of project codes the user works on):
 - my_projects: show/review the projects I work on ("which are my projects?").
-- add_project: the user works on new project(s) ("I'm also working on FS3602A"), even if they also ask to create its Outlook category. Set "project" (first code).
+- add_project: the user works on new project(s) ("I'm also working on FS3602A") or asks to create the Outlook category of a project code ("create the category for FS3602A"). Set "project" (first code).
 - remove_project: the user no longer works on a project ("I don't work on SE3202 anymore"). Set "project".
 - import_projects: import my project codes from an Excel file ("import my projects from Excel").
-- categorize_meetings: help me categorize the Outlook meetings that have NO category ("help me categorize my meetings of October"). Set month/dates if given.
+- categorize_meetings: help me categorize the Outlook meetings that have NO category ("help me categorize my meetings of October"). Set month/dates if given. Not when a project code is named.
 Analysis of saved history:
 - hours_summary: summary/balance of hours by project for a month or dates, or a quick question "how many hours this week / today / on OF0104 in September?" (set project if one is named).
 - compare_months: compare "month" with "month2" (month2 null = the previous month). "Did I charge more than in August?"
@@ -313,10 +313,11 @@ def parse_intent(text: str, history: List[dict], model: str = None, state: str =
 NARRATE_PROMPT = """You are Tributary, the timesheet assistant of the N4W Facility team, talking to the user in a chat.
 The app just did what the user asked. Below are the FACTS it produced (some already shown on screen as cards).
 Write the reply to the user IN {language}: 1 to 3 short sentences, warm and direct, like a helpful colleague.
-- No greeting. Say what happened and what matters most (warnings first), then propose the next step as a question.
+- No greeting. Say what happened and what matters most (warnings first).
+- Do not ask questions and do not propose a next step: the app adds it after your reply.
 - Use ONLY the facts: never invent numbers, dates, project codes or steps. Keep every number exactly as written.
 - If the facts suggest a phrase to type (in quotes), keep that phrase exactly, in quotes.
-- Do not repeat the cards line by line; do not list every project.
+- Do not repeat the cards line by line; do not list every project; do not repeat what is marked (already shown).
 Answer as JSON: {{"reply": "..."}}. Plain text inside, no markdown."""
 
 _REPLY_SCHEMA = {"type": "object", "properties": {"reply": {"type": "string"}}, "required": ["reply"]}

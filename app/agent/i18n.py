@@ -1,8 +1,11 @@
 # ============================================================
 # MENSAJES FIJOS DEL AGENTE (traducción estática, sin LLM)
 # Evita una llamada extra al modelo por mensaje → rápido en CPU.
-# Idiomas sin traducción → inglés. Tablas y tarjetas: siempre en inglés.
+# Idiomas sin traducción → inglés. Títulos de tarjetas y preguntas de casillas
+# también se traducen; el contenido de las tablas de análisis sigue en inglés.
 # ============================================================
+import re
+import unicodedata
 
 MESSAGES = {
     "need_email": {
@@ -455,7 +458,45 @@ MESSAGES = {
         "es": "Verificado con la base global: {details}.",
         "pt": "Verificado na base global: {details}.",
     },
-    "frag_closed": {"en": "{code} is closed", "es": "{code} está cerrado", "pt": "{code} está encerrado"},
+    "checking_codes": {
+        "en": "I'll check the status of the projects you mention…",
+        "es": "Voy a validar el estado de los proyectos que me indicas…",
+        "pt": "Vou validar o status dos projetos que você indicou…",
+    },
+    "code_closed": {
+        "en": "Project {code} closed on {date}, so you can't charge time to it. If you really need to add it, "
+              "ask the N4W Facility Operations team to reopen it.",
+        "es": "El proyecto {code} cerró el {date}, así que no puedes cargarle tiempo. Si necesitas agregarlo "
+              "obligatoriamente, solicita su reapertura al equipo de Operaciones del N4W Facility.",
+        "pt": "O projeto {code} foi encerrado em {date}, então você não pode lançar horas nele. Se precisar "
+              "mesmo adicioná-lo, solicite a reabertura à equipe de Operações do N4W Facility.",
+    },
+    "code_closed_nodate": {
+        "en": "Project {code} is closed, so you can't charge time to it. If you really need to add it, "
+              "ask the N4W Facility Operations team to reopen it.",
+        "es": "El proyecto {code} está cerrado, así que no puedes cargarle tiempo. Si necesitas agregarlo "
+              "obligatoriamente, solicita su reapertura al equipo de Operaciones del N4W Facility.",
+        "pt": "O projeto {code} está encerrado, então você não pode lançar horas nele. Se precisar "
+              "mesmo adicioná-lo, solicite a reabertura à equipe de Operações do N4W Facility.",
+    },
+    "code_not_opened": {
+        "en": "Project {code} hasn't been opened yet, so you can't charge time to it. If you really need to "
+              "add it, ask the N4W Facility Operations team to open it.",
+        "es": "El proyecto {code} todavía no ha sido abierto, así que no puedes cargarle tiempo. Si necesitas "
+              "agregarlo obligatoriamente, solicita su apertura al equipo de Operaciones del N4W Facility.",
+        "pt": "O projeto {code} ainda não foi aberto, então você não pode lançar horas nele. Se precisar "
+              "mesmo adicioná-lo, solicite a abertura à equipe de Operações do N4W Facility.",
+    },
+    "category_next": {
+        "en": "Do you want to assign it to your meetings that have no category? Write: “{phrase}”.",
+        "es": "¿Quieres asignarla a tus reuniones sin categoría? Escribe: “{phrase}”.",
+        "pt": "Quer atribuí-la às suas reuniões sem categoria? Escreva: “{phrase}”.",
+    },
+    "code_missing": {
+        "en": "Code {code} doesn't exist in the global list; check that it's spelled correctly.",
+        "es": "El código {code} no existe en la base global; revisa que esté bien escrito.",
+        "pt": "O código {code} não existe na base global; verifique se está escrito corretamente.",
+    },
     "frag_missing": {"en": "{code} does not exist", "es": "{code} no existe", "pt": "{code} não existe"},
     "frag_already": {"en": "{code} is already in your list", "es": "{code} ya está en tu lista",
                      "pt": "{code} já está na sua lista"},
@@ -521,9 +562,107 @@ MESSAGES = {
         "es": "También puedes preguntar: “{a}” o “{b}”.",
         "pt": "Você também pode perguntar: “{a}” ou “{b}”.",
     },
+    # ── títulos de tarjetas y preguntas de casillas ──
+    "t_help": {"en": "What I can do", "es": "Lo que puedo hacer", "pt": "O que posso fazer"},
+    "t_hours_outlook": {"en": "Hours {label} (Outlook)", "es": "Horas {label} (Outlook)",
+                        "pt": "Horas {label} (Outlook)"},
+    "t_projects_period": {"en": "Projects {label}", "es": "Proyectos {label}", "pt": "Projetos {label}"},
+    "t_alerts": {"en": "Alerts {label}", "es": "Alertas {label}", "pt": "Alertas {label}"},
+    "t_blocked": {"en": "⛔ Hours that cannot be uploaded", "es": "⛔ Horas que no se pueden cargar",
+                  "pt": "⛔ Horas que não podem ser lançadas"},
+    "t_my_projects": {"en": "My projects ({n})", "es": "Mis proyectos ({n})", "pt": "Meus projetos ({n})"},
+    "t_status": {"en": "Status {label}", "es": "Estado {label}", "pt": "Status {label}"},
+    "t_close_check": {"en": "Close check {label}", "es": "Revisión de cierre {label}",
+                      "pt": "Revisão de fechamento {label}"},
+    "t_prorate_split": {"en": "Prorate {label} — how it was split", "es": "Prorrateo {label} — cómo se repartió",
+                        "pt": "Rateio {label} — como foi dividido"},
+    "t_summary": {"en": "Summary {label}", "es": "Resumen {label}", "pt": "Resumo {label}"},
+    "t_project": {"en": "Project {code}", "es": "Proyecto {code}", "pt": "Projeto {code}"},
+    "t_averages": {"en": "Project averages", "es": "Promedios por proyecto", "pt": "Médias por projeto"},
+    "q_add_projects": {"en": "Add to my projects? (creates their Outlook categories)",
+                       "es": "¿Agrego a mis proyectos? (crea sus categorías de Outlook)",
+                       "pt": "Adicionar aos meus projetos? (cria as categorias do Outlook)"},
+    "q_review_projects": {"en": "Changes to my projects", "es": "Cambios en mis proyectos",
+                          "pt": "Mudanças nos meus projetos"},
+    "q_remove_projects": {"en": "Remove from my projects? (Outlook categories are kept)",
+                          "es": "¿Quito de mis proyectos? (las categorías de Outlook se conservan)",
+                          "pt": "Remover dos meus projetos? (as categorias do Outlook são mantidas)"},
+    "q_assign_categories": {"en": "Meetings without category {label} — assign a project",
+                            "es": "Reuniones sin categoría {label} — asigna un proyecto",
+                            "pt": "Reuniões sem categoria {label} — atribua um projeto"},
+    "opt_add": {"en": "Add", "es": "Agregar", "pt": "Adicionar"},
+    "opt_remove": {"en": "Remove", "es": "Quitar", "pt": "Remover"},
+    # ── tabla "mis proyectos" ──
+    "col_code": {"en": "Code", "es": "Código", "pt": "Código"},
+    "col_name": {"en": "Project", "es": "Proyecto", "pt": "Projeto"},
+    "col_status": {"en": "Status", "es": "Estado", "pt": "Status"},
+    "col_avg": {"en": "Avg %", "es": "Prom. %", "pt": "Média %"},
+    "col_target": {"en": "Target", "es": "Objetivo", "pt": "Meta"},
+    "st_active": {"en": "active", "es": "activo", "pt": "ativo"},
+    "st_closed": {"en": "⛔ closed", "es": "⛔ cerrado", "pt": "⛔ encerrado"},
+    "st_not_opened": {"en": "⛔ not opened", "es": "⛔ sin abrir", "pt": "⛔ não aberto"},
+    "st_missing": {"en": "⛔ not in Task Details", "es": "⛔ no está en Task Details",
+                   "pt": "⛔ não está no Task Details"},
+    "st_internal": {"en": "internal (XX)", "es": "interno (XX)", "pt": "interno (XX)"},
+    "st_prorate": {"en": "prorate", "es": "se prorratea", "pt": "rateado"},
+    "off_topic": {
+        "en": "I can only help with your timesheet hours and projects.",
+        "es": "Solo puedo ayudarte con tus horas y tus proyectos.",
+        "pt": "Só posso ajudar com suas horas e seus projetos.",
+    },
+    "my_projects_intro": {
+        "en": "Sure! You're currently working on {n} projects:",
+        "es": "¡Claro! Actualmente estás trabajando en {n} proyectos:",
+        "pt": "Claro! Atualmente você está trabalhando em {n} projetos:",
+    },
+    "my_projects_more": {
+        "en": "If anything changed, tell me, e.g. “{add}…” or “{remove}”.",
+        "es": "Si algo cambió, dímelo, p. ej. “{add}…” o “{remove}”.",
+        "pt": "Se algo mudou, me diga, ex.: “{add}…” ou “{remove}”.",
+    },
 }
 
 
 def tr(key: str, lang: str, **kw) -> str:
     texts = MESSAGES[key]
     return texts.get(lang, texts["en"]).format(**kw)
+
+
+# ── idioma del mensaje (sin LLM) ─────────────────────────────
+# El modelo chico a veces marca "en" un mensaje en español; estas palabras deciden
+# primero y el modelo solo desempata cuando no hay ninguna.
+_WORDS = {
+    "es": {"que", "cual", "cuales", "cuantas", "cuantos", "mis", "mi", "el", "la", "los", "las", "del", "al",
+           "por", "para", "con", "estoy", "trabajando", "trabajo", "dime", "muestra", "muestrame", "lee", "leer",
+           "llena", "envia", "proyectos", "proyecto", "horas", "hoy", "ayer", "mes", "pasado", "pasada",
+           "quiero", "puedes", "hay", "tengo", "llevo", "y", "es", "este", "esta", "estos", "gracias", "si",
+           "tambien", "ya", "agrega", "quita", "pon", "cuanto", "donde", "cuando", "dame", "ver", "porque",
+           "resumen", "compara", "prorratea", "alertas", "promedio", "grafica", "enero", "febrero", "marzo",
+           "mayo", "junio", "julio", "septiembre", "octubre", "noviembre", "diciembre"},
+    "pt": {"voce", "meu", "meus", "minha", "minhas", "projetos", "projeto", "estou", "trabalhando",
+           "quais", "qual", "quantas", "mostre", "leia", "preencha", "envie", "obrigado", "obrigada",
+           "quero", "pode", "do", "da", "dos", "das", "na", "os", "sim", "nao", "essa", "esse", "hoje",
+           "ontem", "mes", "passado", "tenho", "tambem", "ja", "adicione", "remova", "coloque", "ver",
+           "resumo", "compare", "ratear", "janeiro", "fevereiro", "marco", "maio", "junho", "julho",
+           "setembro", "outubro", "novembro", "dezembro"},
+    "en": {"the", "my", "what", "which", "how", "many", "much", "am", "i", "working", "work", "show",
+           "read", "fill", "submit", "projects", "project", "hours", "today", "yesterday", "month", "week",
+           "last", "please", "thanks", "want", "can", "you", "is", "are", "of", "on", "for", "and", "did",
+           "do", "does", "this", "add", "remove", "put", "where", "when", "give", "me", "why", "have",
+           "summary", "compare", "prorate", "chart", "january", "february", "march", "april", "may", "june",
+           "july", "august", "september", "october", "november", "december"},
+}
+
+
+def detect_lang(text: str) -> "str | None":
+    """es / en / pt según las palabras del mensaje; None si no hay ninguna clara."""
+    if re.search(r"[ñ¿¡]", text.lower()):
+        return "es"
+    if re.search(r"[ãõç]", text.lower()):
+        return "pt"
+    plain = "".join(c for c in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(c))
+    words = re.findall(r"\b[a-z]+\b", plain)   # palabras enteras: "OF0104" no es "of"
+    score = {lang: sum(w in vocab for w in words) for lang, vocab in _WORDS.items()}
+    best = max(score, key=score.get)
+    others = [v for k, v in score.items() if k != best]
+    return best if score[best] and score[best] > max(others) else None
