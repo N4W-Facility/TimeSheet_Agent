@@ -10,3 +10,7 @@ settings.json
 TimeSheet_N4W_EXE.bat
 # Notas locales de desarrollo (no se publican)
 CLAUDE.md
+# Variantes del avatar que no se usan (build_avatar.py usa la base, _1.._4 y B2..B9)
+avatar/Tributary_A*.png
+avatar/Tributary_B1.png
+avatar/Tributary_B10.png

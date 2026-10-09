@@ -6,6 +6,8 @@ You tag your meetings in Outlook with a project category. The agent reads them, 
 
 The agent works only with your hours and your projects. It never submits anything until you approve it.
 
+You talk to **Tributary**, an animated water spirit who lives next to the chat. She says each reply as it appears, listens while you type, thinks while she works, points at the cards that need your answer and celebrates when a step is done. To hide her, turn off *Show the avatar* in Settings (⚙).
+
 ---
 
 ## What it can do
@@ -128,6 +130,8 @@ install.bat           installer (copies app\ to %LOCALAPPDATA%\TimeSheetAgent, s
 app/TimeSheet_Agent.bat   launcher: update check, Python env, Ollama + model, opens the chat
 app/update.ps1        auto-update from the latest GitHub release     app/uninstall.bat
 app/app.py            chat app (CustomTkinter)          app/cli.py    command-line flows
+app/ui/avatar.py      Tributary, the animated avatar (Canvas + Pillow); layers in app/ui/avatar/
+avatar/               source images + build_avatar.py, which aligns them into those layers
 app/agent/            intent parsing (Ollama), dialogue, messages (en/es/pt), suggestions
 app/pipeline.py       independent steps with callbacks (read, prorate, Workday, N4W)
 app/core/             Outlook (COM), prorating, N4W Excel, analysis, history, holidays, charts

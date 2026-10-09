@@ -6,6 +6,7 @@
 # ============================================================
 import os
 import threading
+import time
 import tkinter as tk
 from tkinter import filedialog
 
@@ -16,6 +17,7 @@ from agent import llm, suggest
 from agent.agent import Agent
 from agent.settings import Settings
 from pipeline import Decision
+from ui.avatar import Avatar, talk_rate
 
 # ── Paleta ───────────────────────────────────────────────────
 BG         = "#09090b"
@@ -33,10 +35,12 @@ RED_HOV    = "#dc2626"
 INPUT_BG   = "#18181b"
 LOG_BG     = "#0d0d0d"
 LOG_FG     = "#00ff88"
+SPEAK      = "#38bdf8"      # borde de la burbuja que el avatar está diciendo
 
 FONT       = "Segoe UI"
 MONO       = "Consolas"
 WRAP       = 470
+AVATAR_H   = 190            # alto del avatar (px lógicos; se escala con el DPI)
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -61,8 +65,8 @@ class ChatApp:
             self.root.iconbitmap(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico"))
         except tk.TclError:                       # sin icono la app funciona igual
             pass
-        self.root.geometry("680x780")
-        self.root.minsize(560, 600)
+        self.root.geometry("880x780")
+        self.root.minsize(740, 600)
         self.root.configure(fg_color=BG)
 
         self.settings = Settings.load()
@@ -75,10 +79,15 @@ class ChatApp:
         self.dd_index = -1
         self._drafts = {}         # burbujas provisionales que la respuesta redactada reemplaza
         self._draft_seq = 0
+        self._texts = {}          # burbuja → texto que el avatar debe "decir"
+        self._say_queue = []      # burbujas esperando su turno (muestran "…")
+        self._saying = None       # burbuja que se está escribiendo
 
         self._build_ui()
         threading.Thread(target=self._check_ollama, daemon=True).start()
         self.root.after(200, lambda: self._run_agent(self.agent.greet))
+        if self.avatar:
+            self.root.after(300, self.avatar.greet)
         if self.settings.missing():
             self.root.after(400, self._open_settings)
 
@@ -154,6 +163,17 @@ class ChatApp:
                                      command=self._toggle_log)
         self.btn_log.pack(side="right")
 
+        # Avatar: columna a la izquierda del chat, junto a sus burbujas, con el mismo fondo (flota)
+        self.avatar = None
+        try:
+            scale = ctk.ScalingTracker.get_widget_scaling(self.root)
+            self.avatar = Avatar(self.root, BG, round(AVATAR_H * scale))
+        except Exception as e:      # sin capas o Pillow roto: la app sigue sin avatar
+            msg = f"⚠ Avatar not available: {e}"
+            self.root.after(500, lambda: self.log(msg))
+        if self.avatar and self.settings.avatar:
+            self._pack_avatar()
+
         # Chat
         self.chat = ctk.CTkScrollableFrame(self.root, fg_color=BG, corner_radius=0)
         self.chat.pack(fill="both", expand=True, padx=12, pady=(0, 4))
@@ -183,6 +203,8 @@ class ChatApp:
     def _on_type(self, event):
         if event.keysym in ("Up", "Down", "Tab", "Return", "Escape"):
             return
+        if self.avatar:
+            self.avatar.listen(event.keysym)
         self._update_hint()
         text = self.entry.get()
         items = suggest.match(text, self.tips, MAX_DROPDOWN) if not self.busy else []
@@ -264,12 +286,75 @@ class ChatApp:
         row.pack(fill="x", pady=4, padx=8)
         bubble = ctk.CTkFrame(row, fg_color=CARD_BG, border_color=BORDER,
                               border_width=1, corner_radius=10)
-        bubble.pack(side="left")
-        label = ctk.CTkLabel(bubble, text=text, font=(FONT, 12), text_color=color,
+        bubble.pack(side="left", padx=(8, 0))
+        label = ctk.CTkLabel(bubble, text="", font=(FONT, 12), text_color=color,
                              wraplength=WRAP, justify="left")
         label.pack(padx=12, pady=8)
-        self._scroll_bottom()
+        label.tail = self._bubble_tail(row, bubble)
+        self._type(label, text)
         return label
+
+    def _bubble_tail(self, row, bubble):
+        """Colita de cómic a la izquierda de la burbuja, apuntando al avatar."""
+        k = ctk.ScalingTracker.get_widget_scaling(self.root)
+        w, h, over = round(9 * k), round(14 * k), max(2, round(2 * k))
+        tail = tk.Canvas(row, width=w + over, height=h, bg=BG, highlightthickness=0, bd=0)
+        tail.create_polygon(0, h - 1, w + over, 0, w + over, h - 4, fill=CARD_BG, outline="")
+        tail.create_line(0, h - 1, w + 1, 0, fill=BORDER, tags="edge")
+        tail.create_line(0, h - 1, w + 1, h - 4, fill=BORDER, tags="edge")
+        tail.place(in_=bubble, x=-w, rely=1.0, y=-(h + round(10 * k)))
+        return tail
+
+    def _speaking(self, label, on: bool):
+        color = SPEAK if on else BORDER
+        label.master.configure(border_color=color)
+        label.tail.itemconfigure("edge", fill=color)
+
+    # ── El avatar "dice" las burbujas: una a la vez, al ritmo de su boca ──
+
+    def _type(self, label, text: str):
+        if not (self.avatar and self.avatar.canvas.winfo_manager()):
+            label.configure(text=text)
+            self._scroll_bottom()
+            return
+        self._texts[label] = text
+        if label is not self._saying and label not in self._say_queue:
+            label.configure(text="…")
+            self._say_queue.append(label)
+        if self._saying is None:
+            self._say_next()
+        self._scroll_bottom()
+
+    def _say_next(self):
+        self._saying = None
+        while self._say_queue:
+            label = self._say_queue.pop(0)
+            if label.winfo_exists():                # el chat pudo limpiarse entretanto
+                self._saying = label
+                self._speaking(label, True)
+                self._say_step(label, "", 0.0)
+                return
+
+    def _say_step(self, label, said: str, start: float):
+        if not label.winfo_exists():
+            self._texts.pop(label, None)
+            return self._say_next()
+        text = self._texts[label]
+        if text != said:                            # nuevo texto (o revise): empieza a decirlo
+            said, start = text, time.monotonic()
+            self.avatar.speak(text)
+        n = int((time.monotonic() - start) * talk_rate(len(text)))
+        label.configure(text=text[:n] or "…")
+        self._scroll_bottom()
+        bubble = label.master                       # el avatar se pone a la altura de lo que dice
+        self.avatar.point_at(bubble.winfo_rooty() + bubble.winfo_height() / 2
+                             - self.avatar.canvas.winfo_rooty())
+        if n < len(text):
+            self.root.after(40, lambda: self._say_step(label, said, start))
+        else:
+            self._texts.pop(label, None)
+            self._speaking(label, False)
+            self._say_next()
 
     def _card(self, title: str, accent: str) -> ctk.CTkFrame:
         row = ctk.CTkFrame(self.chat, fg_color="transparent")
@@ -307,9 +392,11 @@ class ChatApp:
 
         def done(value):
             result[0] = value
+            self._avatar_waiting(False)
             event.set()
 
         self.root.after(0, lambda: build(done))
+        self._avatar_waiting(True)
         self._set_status("Waiting for your answer...", AMBER)
         event.wait()
         self._set_status("Working...", AMBER)
@@ -342,8 +429,7 @@ class ChatApp:
         def _update():
             label = self._drafts.pop(key, None)
             if label is not None and label.winfo_exists():   # el chat pudo limpiarse entretanto
-                label.configure(text=text)
-                self._scroll_bottom()
+                self._type(label, text)
         self.root.after(0, _update)
 
     def status(self, text: str):
@@ -483,6 +569,8 @@ class ChatApp:
         self.entry.delete(0, "end")
         self._hide_dropdown()
         self._user_bubble(text)
+        if self.avatar:
+            self.avatar.ack()
         self._run_agent(lambda: self.agent.handle(text))
 
     def _clear_chat(self):
@@ -508,6 +596,8 @@ class ChatApp:
 
     def _set_busy(self, busy: bool):
         self.busy = busy
+        if self.avatar:
+            self.avatar.set_busy(busy)
         state = "disabled" if busy else "normal"
         self.entry.configure(state=state)
         self.btn_send.configure(state=state)
@@ -523,6 +613,25 @@ class ChatApp:
 
     def _set_status(self, text: str, color: str = MUTED):
         self.root.after(0, lambda: self.lbl_status.configure(text=f"●  {text}", text_color=color))
+
+    def _pack_avatar(self):
+        opts = {"side": "left", "fill": "y", "padx": (12, 0), "pady": (0, 4)}
+        if hasattr(self, "chat"):                   # al reactivarlo: antes del chat para reservar su columna
+            opts["before"] = self.chat._parent_frame
+        self.avatar.canvas.pack(**opts)
+
+    def _show_avatar(self, show: bool):
+        if not self.avatar:
+            return
+        if show and not self.avatar.canvas.winfo_manager():
+            self._pack_avatar()
+        elif not show:
+            self.avatar.canvas.pack_forget()
+
+    def _avatar_waiting(self, waiting: bool):
+        """Esperando una tarjeta: el avatar señala la tablet (se llama desde el hilo del agente)."""
+        if self.avatar:
+            self.root.after(0, lambda: self.avatar.set_waiting(waiting))
 
     def _toggle_log(self):
         self.log_visible = not self.log_visible
@@ -568,7 +677,7 @@ class ChatApp:
     def _open_settings(self):
         win = ctk.CTkToplevel(self.root)
         win.title("Settings")
-        win.geometry("520x210")
+        win.geometry("520x250")
         win.resizable(False, False)
         win.configure(fg_color=BG)
         win.transient(self.root)
@@ -583,9 +692,15 @@ class ChatApp:
         ctk.CTkLabel(win, text=f"Your projects are managed in the chat.\nFiles: {config.WORK_DIR}",
                      font=(FONT, 11), text_color=MUTED, justify="left").pack(anchor="w", padx=20, pady=(10, 0))
 
+        avatar_var = ctk.BooleanVar(value=self.settings.avatar)
+        ctk.CTkSwitch(win, text="Show the avatar", variable=avatar_var, font=(FONT, 11),
+                      text_color=TEXT, progress_color=BLUE).pack(anchor="w", padx=20, pady=(10, 0))
+
         def save():
             self.settings.email = email_var.get().strip()
+            self.settings.avatar = avatar_var.get()
             self.settings.save()
+            self._show_avatar(self.settings.avatar)
             win.destroy()
 
         ctk.CTkButton(win, text="Save", width=100, height=34, font=(FONT, 12, "bold"),

@@ -148,7 +148,7 @@ MESSAGES = {
         "pt": "✓ N4W Facility enviado ({period}).",
     },
     "help_card": {
-        "en": ("I'm your timesheet assistant for the N4W Facility team: I turn your\n"
+        "en": ("I'm Tributary, your timesheet assistant for the N4W Facility team: I turn your\n"
                "Outlook calendar into Workday and N4W Facility, one step at a time.\n\n"
                "🕒 1 · YOUR HOURS — from Outlook categories “CODE | Description”\n"
                "   › “{read}”\n   › “{categorize}”\n   › “{edit}”\n\n"
@@ -167,7 +167,7 @@ MESSAGES = {
                "🧹 Clean screen: “clear chat” or the 🗑 button (your hours and history stay).\n\n"
                "🔒 Everything runs on your PC (local AI model). Write naturally, in English,\n"
                "   Spanish or Portuguese."),
-        "es": ("Soy tu asistente de horas del equipo N4W Facility: paso tu calendario\n"
+        "es": ("Soy Tributary, tu asistente para hojas de tiempo del equipo N4W Facility: paso tu calendario\n"
                "de Outlook a Workday y a N4W Facility, paso a paso.\n\n"
                "🕒 1 · TUS HORAS — desde las categorías de Outlook “CÓDIGO | Descripción”\n"
                "   › “{read}”\n   › “{categorize}”\n   › “{edit}”\n\n"
@@ -186,7 +186,7 @@ MESSAGES = {
                "🧹 Pantalla limpia: “borra el chat” o el botón 🗑 (tus horas e historial quedan).\n\n"
                "🔒 Todo corre en tu PC (modelo de IA local). Escríbeme natural, en español,\n"
                "   inglés o portugués."),
-        "pt": ("Sou seu assistente de horas da equipe N4W Facility: levo seu calendário\n"
+        "pt": ("Sou a Tributary, sua assistente de horas da equipe N4W Facility: levo seu calendário\n"
                "do Outlook para o Workday e o N4W Facility, passo a passo.\n\n"
                "🕒 1 · SUAS HORAS — das categorias do Outlook “CÓDIGO | Descrição”\n"
                "   › “{read}”\n   › “{categorize}”\n   › “{edit}”\n\n"
@@ -507,9 +507,9 @@ MESSAGES = {
         "pt": "Você ainda não tem projetos na sua lista. Escreva os códigos, ex.: “OF0104, FS3602A”.",
     },
     "welcome": {
-        "en": "Hi! I'm your timesheet assistant. We go one step at a time: read your hours from Outlook → prorate (when required) → fill Workday or submit N4W. Ask me about your hours and projects anytime, in any language. Suggestions appear as you type (Tab to accept).",
-        "es": "¡Hola! Soy tu asistente de hojas de tiempo. Vamos paso a paso: leer tus horas de Outlook → prorratear (cuando aplica) → llenar Workday o enviar N4W. Pregúntame lo que quieras sobre tus horas y proyectos, en cualquier idioma. Mientras escribes verás sugerencias (Tab para aceptar).",
-        "pt": "Olá! Sou seu assistente de timesheet. Vamos passo a passo: ler suas horas do Outlook → ratear (quando necessário) → preencher o Workday ou enviar N4W. Pergunte o que quiser sobre suas horas e projetos, em qualquer idioma. Sugestões aparecem enquanto você digita (Tab para aceitar).",
+        "en": "Hi! I'm Tributary, your timesheet assistant. We go one step at a time: read your hours from Outlook → prorate (when required) → fill Workday or submit N4W. Ask me about your hours and projects anytime, in any language. Suggestions appear as you type (Tab to accept).",
+        "es": "¡Hola! Soy Tributary, tu asistente para hojas de tiempo. Vamos paso a paso: leer tus horas de Outlook → prorratear (cuando aplica) → llenar Workday o enviar N4W. Pregúntame lo que quieras sobre tus horas y proyectos, en cualquier idioma. Mientras escribes verás sugerencias (Tab para aceptar).",
+        "pt": "Olá! Sou a Tributary, sua assistente de timesheet. Vamos passo a passo: ler suas horas do Outlook → ratear (quando necessário) → preencher o Workday ou enviar N4W. Pergunte o que quiser sobre suas horas e projetos, em qualquer idioma. Sugestões aparecem enquanto você digita (Tab para aceitar).",
     },
     "start_examples": {
         "en": "To start, write for example: “{a}” or “{b}”.",

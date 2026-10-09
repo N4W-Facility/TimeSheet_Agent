@@ -1,0 +1,104 @@
+{
+  "size": [
+    457,
+    440
+  ],
+  "poses": {
+    "idle": "pose_idle.png",
+    "wave": "pose_wave.png",
+    "think": "pose_think.png",
+    "celebrate": "pose_celebrate.png",
+    "point": "pose_point.png"
+  },
+  "patches": {
+    "eyes_closed": {
+      "file": "eyes_closed.png",
+      "zone": "eyes",
+      "xy": [
+        170,
+        117
+      ]
+    },
+    "eyes_half": {
+      "file": "eyes_half.png",
+      "zone": "eyes",
+      "xy": [
+        170,
+        117
+      ]
+    },
+    "mouth_small": {
+      "file": "mouth_small.png",
+      "zone": "mouth",
+      "xy": [
+        193,
+        158
+      ]
+    },
+    "mouth_wide": {
+      "file": "mouth_wide.png",
+      "zone": "mouth",
+      "xy": [
+        193,
+        158
+      ]
+    },
+    "mouth_o": {
+      "file": "mouth_o.png",
+      "zone": "mouth",
+      "xy": [
+        193,
+        158
+      ]
+    },
+    "happy": {
+      "file": "happy.png",
+      "zone": "face",
+      "xy": [
+        166,
+        97
+      ]
+    },
+    "worried": {
+      "file": "worried.png",
+      "zone": "face",
+      "xy": [
+        166,
+        97
+      ]
+    },
+    "surprised": {
+      "file": "surprised.png",
+      "zone": "face",
+      "xy": [
+        166,
+        97
+      ]
+    }
+  },
+  "pose_zones": {
+    "idle": [
+      "eyes",
+      "mouth",
+      "face"
+    ],
+    "wave": [
+      "eyes",
+      "mouth",
+      "face"
+    ],
+    "point": [
+      "eyes",
+      "mouth",
+      "face"
+    ],
+    "think": [
+      "eyes"
+    ],
+    "celebrate": []
+  },
+  "glow": [
+    230,
+    259
+  ]
+}
