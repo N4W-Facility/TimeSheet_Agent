@@ -3,7 +3,8 @@
 # Capas en ui/avatar/ (las genera avatar/build_avatar.py): poses completas +
 # parches de ojos/boca/cara que se superponen como items del Canvas.
 # Un solo bucle after() en el hilo de UI: flota, respira (luz del pecho),
-# parpadea, mueve la boca al hablar y cambia de pose según lo que hace el agente.
+# parpadea, mira (al chat, al pensar, de reojo), mueve la boca al hablar y cambia
+# de pose según lo que hace el agente; en reposo sonríe, ladea la cabeza o bosteza.
 # El chat llama busy/waiting/speak/listen/ack/greet desde el hilo de UI; el texto de
 # la burbuja se escribe al mismo ritmo que la boca (talk_rate).
 # ============================================================
@@ -30,6 +31,12 @@ BOB_S = 2.8                # periodo de la flotación
 GLOW_S = 3.4               # periodo del "latido" de la luz del pecho
 GLOW_LEVELS = 8
 LEAN_PX = 0.025            # cuánto se inclina hacia el ratón (fracción del ancho)
+LOOP_S = 0.3               # cuadros de saludo/celebración que se alternan
+LOOPS = {"wave": ("wave", "wave2"), "celebrate": ("celebrate", "celebrate2")}
+TILTS = ("tilt_l", "tilt_r")
+GLANCES = ("look_r", "look_ur", "look_up")
+TILT_GAP_S = 10.0          # ladea la cabeza al empezar a escribir, como mucho cada tanto
+YAWN_AFTER_S = 90.0        # sin actividad este tiempo: bosteza (una vez)
 
 
 def talk_rate(n: int) -> float:
@@ -38,14 +45,20 @@ def talk_rate(n: int) -> float:
 
 
 def mouth_for(ch: str):
-    """Forma de la boca para una letra: vocal abierta, redonda o pequeña; lo demás, cerrada."""
+    """Forma de la boca para una letra: vocales y labiales; lo demás, la de reposo."""
     c = ch.lower()
     if c in "aáàâã":
         return "mouth_wide"
     if c in "oóôõuúü":
         return "mouth_o"
-    if c in "eéêiíy":
+    if c in "eéê":
+        return "mouth_teeth"
+    if c in "iíy":
         return "mouth_small"
+    if c in "mbp":
+        return "mouth_closed"
+    if c in "fv":
+        return "mouth_teeth"
     return None
 
 
@@ -97,7 +110,8 @@ class Avatar:
 
         self.busy = False
         self.waiting = False
-        self._pose = None
+        self._pose = None                           # cuadro dibujado (wave2, celebrate2…)
+        self._base = None                           # pose lógica (wave, celebrate…)
         self._fade = None                           # (pose anterior, inicio)
         self._gesture = (None, 0.0)                 # (pose, hasta)
         self._mood = (None, 0.0)                    # (parche de cara, hasta)
@@ -110,6 +124,12 @@ class Avatar:
         self._hover_until = 0.0
         self._listen_until = 0.0
         self._nods = []                             # inicios de cada asentimiento
+        self._glance = (None, 0.0)                  # (mirada, hasta)
+        now = time.monotonic()
+        self._life_at = now + 4.0                   # próximo gesto espontáneo en reposo
+        self._active = now                          # última actividad (para el bostezo)
+        self._yawned = False
+        self._tilt_ok = 0.0
         self._anchor = None                         # alto (en el canvas) de la burbuja que dice
         self._top = None                            # posición vertical actual (se desliza)
         self._job = None
@@ -123,12 +143,14 @@ class Avatar:
 
     def set_busy(self, busy: bool):
         self.busy = busy
+        self._activity()
 
     def set_waiting(self, waiting: bool):
         self.waiting = waiting
+        self._activity()
 
     def speak(self, text: str):
-        now = time.monotonic()
+        now = self._activity()
         self._talk = (text, now, now + max(0.6, len(text) / talk_rate(len(text))))
         self._listen_until = 0.0
         gesture, mood = reaction(text)
@@ -146,14 +168,17 @@ class Avatar:
 
     def listen(self, key: str = ""):
         """El usuario escribe: se inclina hacia el campo de texto y asiente entre palabras."""
-        now = time.monotonic()
+        now = self._activity()
+        if now >= self._listen_until and now >= self._tilt_ok and not (self.busy or self.waiting):
+            self.gesture(random.choice(TILTS), 1.4)   # "a ver, ¿qué me cuentas?"
+            self._tilt_ok = now + TILT_GAP_S
         self._listen_until = now + LISTEN_S
         if key in (" ", "space") and (not self._nods or now - self._nods[-1] > 1.2):
             self._nods.append(now)
 
     def ack(self):
         """Mensaje enviado: "ajá" — asiente dos veces y sonríe antes de pensar."""
-        now = time.monotonic()
+        now = self._activity()
         self._nods = [now, now + NOD_S]
         self._listen_until = 0.0
         self.gesture("idle", 0.7)
@@ -181,7 +206,14 @@ class Avatar:
     def _on_click(self, _event):
         self.gesture("wave", 1.6)
         self.mood("happy", 2.2)
-        self._hop = time.monotonic()
+        self._hop = self._activity()
+
+    def _activity(self):
+        now = time.monotonic()
+        self._active = now
+        self._yawned = False
+        self._life_at = max(self._life_at, now + 4.0)
+        return now
 
     # ── Imágenes precalculadas ───────────────────────────────
 
@@ -239,6 +271,40 @@ class Avatar:
             return "think"
         return "idle"
 
+    def _frame_of(self, pose, now):
+        """Cuadro a dibujar: saludo y celebración alternan dos imágenes."""
+        frames = [f for f in LOOPS.get(pose, (pose,)) if f in self._poses]
+        return frames[int(now / LOOP_S) % len(frames)] if frames else pose
+
+    def _idle_life(self, now, pose):
+        """En reposo: mira de reojo, sonríe suave o, tras mucho rato, bosteza."""
+        talking = now < self._talk[2]
+        if pose != "idle" or talking or self.busy or self.waiting or now < self._listen_until:
+            return
+        if not self._yawned and now - self._active > YAWN_AFTER_S and "yawn" in self._poses:
+            self._yawned = True
+            self.gesture("yawn", 2.2)
+            return
+        if now < self._life_at:
+            return
+        self._life_at = now + random.uniform(4.0, 9.0)
+        if random.random() < 0.55:
+            self._glance = (random.choice(GLANCES), now + random.uniform(0.7, 1.4))
+        elif "soft" in self._patches:
+            self.mood("soft", random.uniform(2.5, 4.0))
+
+    def _gaze(self, now, pose):
+        """Hacia dónde mira: arriba si piensa, al chat si escucha/espera/empieza a hablar."""
+        if pose == "think":
+            name = "look_up"
+        elif self.waiting or now < self._listen_until or now - self._talk[1] < 0.5:
+            name = "look_r"
+        else:
+            name, until = self._glance
+            if now >= until:
+                return None
+        return name if name in self._patches else None
+
     def _show(self, item, image, x=None, y=None):
         if image is None:
             if self._shown.get(item) is not None:
@@ -271,20 +337,25 @@ class Avatar:
         text, start, until = self._talk
         if now >= until:
             return None
-        t = (now - start) // SYLLABLE_S * SYLLABLE_S
-        i = int(t * talk_rate(len(text)))
+        n = int((now - start) // SYLLABLE_S)
+        i = int(n * SYLLABLE_S * talk_rate(len(text)))
         for ch in text[i:i + 3]:
             shape = mouth_for(ch)
-            if shape:
+            if shape == "mouth_wide" and n % 3 == 2 and "mouth_smile" in self._patches:
+                return "mouth_smile"                # varía la "a" para que no se vea repetida
+            if shape in self._patches:
                 return shape
         return None
 
     def _frame(self, now):
-        pose = self._current_pose(now)
-        if pose != self._pose:
+        base = self._current_pose(now)
+        self._idle_life(now, base)
+        base = self._current_pose(now)              # el bostezo pudo empezar ahora
+        if base != self._base:                      # cambio de pose: crossfade
             if self._pose is not None:
                 self._fade = (self._pose, now)
-            self._pose = pose
+            self._base = base
+        pose = self._pose = self._frame_of(base, now)   # cuadros del mismo gesto: sin fundido
 
         # Movimiento: flotación + salto (clic/celebración) + inclinación hacia el ratón
         phase = math.sin(2 * math.pi * now / BOB_S)
@@ -331,8 +402,12 @@ class Avatar:
         # Cara: ánimo, parpadeo y boca (solo en las poses que los admiten)
         zones = [] if fading else self._pose_zones.get(pose, [])
         mood, until = self._mood
-        layers = ((self._face, mood if "face" in zones and now < until else None),
-                  (self._eyes, self._blink(now) if "eyes" in zones else None),
+        mood = mood if "face" in zones and now < until else None
+        eyes = None
+        if "eyes" in zones:
+            eyes = self._blink(now) or (None if mood else self._gaze(now, base))
+        layers = ((self._face, mood),
+                  (self._eyes, eyes),
                   (self._mouth, self._mouth_shape(now) if "mouth" in zones else None))
         for item, name in layers:
             if name:

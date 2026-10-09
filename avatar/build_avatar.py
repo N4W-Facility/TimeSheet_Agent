@@ -19,10 +19,16 @@ HEIGHT = 440                     # alto guardado (la app lo reduce al tamaño de
 POSES = {                        # pose → imagen completa (alineadas con la base)
     "idle": "Tributary",
     "wave": "Tributary_1",
+    "wave2": "Tributary_1a",     # segundo cuadro del saludo (se alterna con wave)
     "think": "Tributary_2",      # mano en la barbilla: tapa la boca
     "celebrate": "Tributary_3",  # trae su propia cara
+    "celebrate2": "Tributary_1b",
     "point": "Tributary_4",
+    "tilt_l": "Tributary_5",     # cabeza ladeada: curiosidad mientras el usuario escribe
+    "tilt_r": "Tributary_6",
+    "yawn": "Tributary_7",       # tras un rato sin actividad
 }
+ALIGN_BODY = {"tilt_l", "tilt_r", "yawn"}   # vienen a otra escala: se alinean por el cuerpo
 PATCHES = {                      # parche → (variante, zona)
     "eyes_closed": ("Tributary_B2", "eyes"),
     "eyes_half": ("Tributary_B3", "eyes"),
@@ -32,17 +38,30 @@ PATCHES = {                      # parche → (variante, zona)
     "happy": ("Tributary_B7", "face"),
     "worried": ("Tributary_B8", "face"),
     "surprised": ("Tributary_B9", "face"),
+    "soft": ("Tributary_8", "face"),            # sonrisa suave de reposo
+    "look_r": ("Tributary_C3", "eyes"),         # mirada hacia el chat
+    "look_ur": ("Tributary_C1", "eyes"),
+    "look_up": ("Tributary_C2", "eyes"),        # pensando
+    "mouth_closed": ("Tributary_C7", "mouth"),  # m/b/p
+    "mouth_teeth": ("Tributary_C5", "mouth"),   # e/f/v
+    "mouth_smile": ("Tributary_C6", "mouth"),
 }
 POSE_ZONES = {                   # qué parches admite cada pose
     "idle": ["eyes", "mouth", "face"],
     "wave": ["eyes", "mouth", "face"],
+    "wave2": ["eyes", "mouth", "face"],
     "point": ["eyes", "mouth", "face"],
     "think": ["eyes"],
     "celebrate": [],
+    "celebrate2": [],
+    "tilt_l": [],                # la cabeza se movió: los parches no caen en su sitio
+    "tilt_r": [],
+    "yawn": [],
 }
 
 # Coordenadas en la base (1254×1254)
 FACE = (440, 280, 860, 600)                       # ventana para alinear
+BODY = (300, 650, 1000, 1150)                     # ventana para alinear poses con la cabeza movida
 EYES = [(543, 413, 70, 62), (746, 455, 68, 58)]   # elipses (cx, cy, rx, ry), sin cejas
 BROWS = [(545, 388, 84, 92), (750, 432, 76, 86)]  # ojos + cejas (las emociones mueven las cejas)
 MOUTH = [(622, 518, 88, 58)]
@@ -80,9 +99,9 @@ def _best_shift(ref, mov, box, center, radius, step):
     return best
 
 
-def align(base, var):
-    """Escala + traslación que lleva la cara de `var` sobre la de la base."""
-    cx, cy = (FACE[0] + FACE[2]) / 2, (FACE[1] + FACE[3]) / 2
+def align(base, var, box=FACE):
+    """Escala + traslación que lleva la cara (o `box`) de `var` sobre la de la base."""
+    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
     ref2, ref1 = _edges(base, 2), _edges(base)
     best = None
     for sc in np.arange(0.92, 1.081, 0.01):
@@ -90,11 +109,11 @@ def align(base, var):
         canvas = Image.new("RGBA", (w, h))
         canvas.paste(var.resize((round(w * sc), round(h * sc)), Image.LANCZOS),
                      (round(cx - cx * sc), round(cy - cy * sc)))
-        s, dx, dy = _best_shift(ref2, _edges(canvas, 2), FACE, (0, 0), 24, 2)   # grueso a media escala
+        s, dx, dy = _best_shift(ref2, _edges(canvas, 2), box, (0, 0), 24, 2)   # grueso a media escala
         if best is None or s > best[0]:
             best = (s, canvas, dx * 2, dy * 2)
     _, canvas, dx, dy = best
-    _, dx, dy = _best_shift(ref1, _edges(canvas), FACE, (dx, dy), 2, 1)          # fino a escala real
+    _, dx, dy = _best_shift(ref1, _edges(canvas), box, (dx, dy), 2, 1)          # fino a escala real
     out = Image.new("RGBA", canvas.size)
     out.paste(canvas, (-dx, -dy))
     return out
@@ -137,7 +156,8 @@ def chest_light(im):
 def main():
     os.makedirs(OUT, exist_ok=True)
     base = load(POSES["idle"])
-    poses = {name: fade_bottom(load(src)) for name, src in POSES.items()}
+    poses = {name: fade_bottom(align(base, load(src), BODY) if name in ALIGN_BODY else load(src))
+             for name, src in POSES.items()}
 
     # recorte común a todas las poses y factor de escala
     x0, y0, x1, y1 = poses["idle"].getchannel("A").getbbox()

@@ -15,6 +15,9 @@ def test_mouth_follows_vowels():
     assert avatar.mouth_for("a") == "mouth_wide"
     assert avatar.mouth_for("Ó") == "mouth_o"
     assert avatar.mouth_for("í") == "mouth_small"
+    assert avatar.mouth_for("e") == "mouth_teeth"
+    assert avatar.mouth_for("M") == "mouth_closed"
+    assert avatar.mouth_for("f") == "mouth_teeth"
     assert avatar.mouth_for("t") is None
     assert avatar.mouth_for(" ") is None
 
@@ -40,6 +43,12 @@ def test_layers_exist_and_fit_the_canvas():
     assert all(set(z) <= zones for z in meta["pose_zones"].values())
     # la boca que usa el habla existe como parche
     assert {"mouth_wide", "mouth_o", "mouth_small", "eyes_closed", "eyes_half"} <= set(meta["patches"])
+    shapes = {avatar.mouth_for(c) for c in "aoeimf"}
+    assert shapes <= set(meta["patches"])
+    assert set(avatar.GLANCES) <= set(meta["patches"])
+    # cuadros de los gestos en bucle, cabeza ladeada y bostezo
+    loops = {f for frames in avatar.LOOPS.values() for f in frames}
+    assert loops | set(avatar.TILTS) | {"yawn"} <= set(meta["poses"])
 
 
 def test_long_texts_are_said_faster_but_short_ones_at_normal_pace():
