@@ -7,4 +7,4 @@
 .gitignore export-ignore
 app/tests export-ignore
 app/eval_intents.py export-ignore
-avatar export-ignore
+/avatar export-ignore
