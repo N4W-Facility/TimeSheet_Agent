@@ -20,7 +20,7 @@ STEPS = ["read_hours", "prorate", "fill_workday", "submit_n4w"]
 # "Mis proyectos" (la lista de códigos en los que trabaja el usuario)
 # Estado, control antes de cerrar y correcciones del periodo leído
 STATUS = ["status", "close_check", "edit_hours", "explain_prorate"]
-PROJECTS = ["my_projects", "add_project", "remove_project", "delete_category", "import_projects",
+PROJECTS = ["my_projects", "add_project", "find_project", "remove_project", "delete_category", "import_projects",
             "categorize_meetings"]
 # Análisis sobre el historial
 ANALYSIS = ["hours_summary", "compare_months", "project_stats", "set_target",
@@ -85,6 +85,7 @@ Status and corrections:
 My projects (the list of project codes the user works on):
 - my_projects: show/review the projects I work on ("which are my projects?", "what projects am I working on?"). Not read_hours: it reads nothing.
 - add_project: the user works on new project(s) ("I'm also working on FS3602A") or asks to create the Outlook category of a project code ("create the category for FS3602A"). Set "project" (first code).
+- find_project: search projects by program name, partial code or phase, without a full code ("add the Sava project", "find the Meta projects", "the scoping phase of Sava").
 - remove_project: the user no longer works on a project ("I don't work on SE3202 anymore"). Set "project".
 - delete_category: the user explicitly asks to delete the Outlook category of a project ("delete the category of SE3202"). Set "project".
 - import_projects: import my project codes from an Excel file ("import my projects from Excel").

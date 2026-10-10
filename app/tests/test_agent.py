@@ -91,6 +91,10 @@ class FakePipe:
             'P100': {'status': 'active', 'prorate': False, 'description': 'Project', 'opened': '2020-01-01', 'closed': None},
             'P200': {'status': 'closed', 'prorate': False, 'description': 'Old', 'opened': '2020-01-01', 'closed': '2026-08-31'},
             'P300': {'status': 'active', 'prorate': False, 'description': 'Other', 'opened': '2020-01-01', 'closed': None},
+            'SE3501': {'status': 'closed', 'prorate': False, 'description': 'SE35: Sava Scoping', 'opened': '2020-01-01', 'closed': '2025-06-30'},
+            'SE3502': {'status': 'active', 'prorate': False, 'description': 'SE35: Sava Delivery', 'opened': '2020-01-01', 'closed': None},
+            'SE3503': {'status': 'active', 'prorate': False, 'description': 'SE35: Sava KM', 'opened': '2020-01-01', 'closed': None},
+            'FS3602A': {'status': 'active', 'prorate': False, 'description': 'FS36: Meta Ohio Delivery', 'opened': '2020-01-01', 'closed': None},
             'VIRT1': {'status': 'active', 'prorate': True, 'description': 'Virtual', 'opened': '2020-01-01', 'closed': None}}
 
     def refresh_task_details(self):
@@ -1218,3 +1222,53 @@ def test_delete_category_guess_without_explicit_request_asks(env, monkeypatch):
     monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent("delete_category", project="P100"))
     agent.handle("ya terminé el P100")
     assert not getattr(ui, 'sends', []) and ui.said[-1] == i18n.tr("clarify", "es")
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("agrega el proyecto de Sava", ["SE3501", "SE3502", "SE3503"]),
+    ("la fase de scoping de Sava", ["SE3501"]),
+    ("quiero agregar el delivery de sabá", ["SE3502"]),
+    ("agrega la fase de conocimiento de sava", ["SE3503"]),
+    ("SE35 KM", ["SE3503"]),
+    ("find the Meta projects", ["FS3602A"]),
+    ("adicione o projeto Meta Ohio", ["FS3602A"]),
+    ("agrega un proyecto", []),
+])
+def test_project_search(tmp_path, text, expected):
+    from agent import search
+    assert search.search(text, FakePipe(tmp_path).status) == expected
+
+
+def test_add_project_by_name_shows_checklist(env, monkeypatch):
+    agent, ui, pipe, send = env
+    agent.status = pipe.status
+    monkeypatch.setattr(llm, "parse_intent",                         # el modelo pone el nombre como "código"
+                        lambda t, h, **k: llm.Intent(action="add_project", project="Sava", language="es"))
+    ui.choice = lambda d: [d.options[0]]
+    agent.handle("quiero agregar el proyecto de Sava")
+    d = ui.decisions[-1]
+    assert d.kind == 'find_projects' and d.preselected == []
+    assert [o.split(" —")[0] for o in d.options] == ["SE3502", "SE3503"]       # solo abiertos
+    assert ui.cards[-1][0] == "También encontré (no se pueden agregar)" and "SE3501" in ui.cards[-1][1]
+    assert "cerró el 2025-06-30" in ui.cards[-1][1]
+    assert "SE3502" in agent.store.my_projects() and "SE3502" in pipe.categories
+    assert any("Agregué SE3502" in t and "Creé su categoría" in t for t in ui.said)
+    assert "reuniones sin categoría" in ui.said[-1]
+
+
+def test_search_single_open_project_is_preselected(env, monkeypatch):
+    agent, ui, pipe, send = env
+    agent.status = pipe.status
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: llm.Intent(action="add_project", language="es"))
+    ui.choice = lambda d: []                                        # el usuario desmarca: nada se agrega
+    agent.handle("agrega el delivery de sava")
+    d = ui.decisions[-1]
+    assert d.options == d.preselected and d.options[0].startswith("SE3502")
+    assert "SE3502" not in agent.store.my_projects()
+
+
+def test_search_nothing_found(env, monkeypatch):
+    agent, ui, pipe, send = env
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: llm.Intent(action="find_project", language="es"))
+    agent.handle("busca el proyecto de Marte")
+    assert ui.said[-1].startswith("No encontré proyectos")

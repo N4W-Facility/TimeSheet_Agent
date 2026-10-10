@@ -555,6 +555,33 @@ MESSAGES = {
                     "pt": "Certo, mantive a categoria “{cat}”."},
     "delcat_missing": {"en": "{code} has no category in Outlook.", "es": "{code} no tiene categoría en Outlook.",
                        "pt": "{code} não tem categoria no Outlook."},
+    # buscador de proyectos (por programa, nombre o fase)
+    "found_intro": {
+        "en": "I found {n} projects matching your search; {open} of them are open and you can add them:",
+        "es": "Encontré {n} proyectos con esa búsqueda; {open} están abiertos y puedes agregarlos:",
+        "pt": "Encontrei {n} projetos com essa busca; {open} estão abertos e você pode adicioná-los:",
+    },
+    "t_found_other": {"en": "Also found (cannot be added)", "es": "También encontré (no se pueden agregar)",
+                      "pt": "Também encontrei (não podem ser adicionados)"},
+    "found_mine": {"en": "{code} — {name} · already in your projects", "es": "{code} — {name} · ya está en tus proyectos",
+                   "pt": "{code} — {name} · já está nos seus projetos"},
+    "found_closed": {"en": "{code} — {name} · closed on {date}", "es": "{code} — {name} · cerró el {date}",
+                     "pt": "{code} — {name} · fechou em {date}"},
+    "found_not_opened": {"en": "{code} — {name} · not opened yet", "es": "{code} — {name} · todavía no se abre",
+                         "pt": "{code} — {name} · ainda não foi aberto"},
+    "found_nothing_to_add": {
+        "en": "None of them can be added now. If you need a closed or unopened one, contact the N4W Facility Operations team.",
+        "es": "Ninguno se puede agregar ahora. Si necesitas uno cerrado o sin abrir, contacta al equipo de Operaciones del N4W Facility.",
+        "pt": "Nenhum pode ser adicionado agora. Se precisar de um fechado ou não aberto, fale com a equipe de Operações do N4W Facility.",
+    },
+    "search_none": {
+        "en": "I didn't find any project with that. Try the program name (e.g. “Sava”), its code (e.g. “SE35”) or a phase (scoping, delivery, KM).",
+        "es": "No encontré proyectos con eso. Prueba con el nombre del programa (p. ej. “Sava”), su código (p. ej. “SE35”) o una fase (scoping, delivery, KM).",
+        "pt": "Não encontrei projetos com isso. Tente o nome do programa (ex. “Sava”), o código (ex. “SE35”) ou uma fase (scoping, delivery, KM).",
+    },
+    "q_find_projects": {"en": "Which ones do you want to add? (creates their Outlook categories)",
+                        "es": "¿Cuáles quieres agregar? (crea sus categorías de Outlook)",
+                        "pt": "Quais você quer adicionar? (cria as categorias do Outlook)"},
     "frag_not_mine": {"en": "{code} is not in your list", "es": "{code} no está en tu lista",
                       "pt": "{code} não está na sua lista"},
     "projects_ready": {

@@ -17,7 +17,7 @@ import pandas as pd
 
 import config
 import workflows
-from agent import i18n, llm, suggest
+from agent import i18n, llm, search, suggest
 from agent.settings import Settings
 from core import analysis, categorize, charts, database, holidays_cal, n4w, timesheet
 from core.history import History
@@ -116,6 +116,8 @@ MY_PROJECTS_RE = re.compile(
     r"|\bprojetos em que (trabalho|estou)\b")
 # "elimina la categoría de SE3501": solo si el usuario lo pide explícitamente (tarjeta roja)
 DELETE_CAT_RE = re.compile(r"\b(elimina\w*|borra\w*|quita\w*|delete|remove|erase|apaga\w*|exclui\w*|remov\w*)\b.*\bcategor")
+# "busca los proyectos de Meta": buscador por programa, nombre o fase (agent/search.py)
+SEARCH_RE = re.compile(r"\b(busca\w*|encuentra\w*|search|find|look for|procur\w*)\b")
 # "crea la categoría de SE3501": el proyecto se valida y se agrega (aunque no diga "trabajo en")
 CATEGORY_RE = re.compile(r"\bcategor")
 # Pide releer a propósito: no se pregunta "¿lo vuelvo a leer?"
@@ -334,6 +336,9 @@ class Agent:
             intent.action = "read_hours"
         if intent.action == "read_hours" and not self._asks_to_read(text):
             intent.action, intent.reply = "clarify", ""     # el modelo adivinó: se vuelve a preguntar
+        project = (intent.project or "").upper()
+        if project and project not in self.status and not re.search(r"\d", project):
+            intent.project = None                   # "Sava" no es un código: se busca por nombre
         has_code = any(database.extract_codes(text, self.status)) or intent.project
         if DELETE_CAT_RE.search(suggest._norm(text)) and has_code:
             intent.action = "delete_category"
@@ -341,6 +346,13 @@ class Agent:
             intent.action = "project_category"
         elif intent.action == "delete_category":  # borrar solo con un pedido explícito
             intent.action, intent.reply = "clarify", ""
+        # sin código: "agrega el proyecto de Sava", "busca Meta", "la categoría de Sava" → buscador
+        norm = suggest._norm(text)
+        if not has_code and (intent.action in ("add_project", "project_category", "find_project")
+                             or SEARCH_RE.search(norm)
+                             or (CATEGORY_RE.search(norm) and intent.action == "categorize_meetings"
+                                 and search.search(text, self.status))):
+            intent.action = "find_project"
         if lang and intent.language != lang:      # el modelo se equivocó de idioma: su frase no sirve
             intent.reply = ""
         # sin palabras claras (un código, "ok"): un mensaje corto no cambia el idioma de la charla
@@ -1183,6 +1195,45 @@ class Agent:
             self._next(self.m("category_next", phrase=self.p("categorize", month)))
 
     do_project_category = do_add_project
+
+    def do_find_project(self, intent):
+        """Busca proyectos por programa, nombre o fase y deja elegir en casillas cuáles agregar."""
+        self._ensure_global()
+        codes = search.search(self.text, self.status)
+        if not codes:
+            raise NeedInfo(self.m("search_none"))
+        mine = set(self.store.my_projects())
+        lead = getattr(self.ui, "lead", self.ui.say)     # tal cual: el modelo no los redacta
+        free = [c for c in codes if self.status[c]['status'] == 'active' and c not in mine]
+        info = []
+        for c in codes:
+            st, name = self.status[c], self.status[c].get('description', '') or c
+            if c in mine:
+                info.append(self.m("found_mine", code=c, name=name))
+            elif st['status'] == 'closed':
+                info.append(self.m("found_closed", code=c, name=name, date=st.get('closed') or '-'))
+            elif st['status'] == 'not_opened':
+                info.append(self.m("found_not_opened", code=c, name=name))
+        lead(self.m("found_intro", n=len(codes), open=len(free)))
+        if info:
+            self.ui.show(self.m("t_found_other"), "\n".join(info))
+        if not free:
+            self._next(self.m("found_nothing_to_add"))
+            return
+        labels = {self._label(c): c for c in free}
+        chosen = self.ui.decide(Decision(
+            kind='find_projects', question=self.m("q_find_projects"), options=list(labels), multi=True,
+            preselected=list(labels) if len(labels) == 1 else []))
+        if not chosen:
+            self.ui.say(self.m("cancelled"))
+            return
+        add = [labels[c] for c in chosen]
+        self.store.add_projects(add)
+        cats = self._category_per_code(add)
+        self._report_categories(cats, "h_added")
+        if any(state != 'failed' for state, _ in cats.values()):
+            month = self.loaded.start if self.loaded else datetime.now()
+            self._next(self.m("category_next", phrase=self.p("categorize", month)))
 
     def do_remove_project(self, intent):
         self._ensure_global()
