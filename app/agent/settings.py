@@ -22,6 +22,7 @@ class Settings:
     model: str = ""         # modelo Ollama elegido a mano; vacío → config.OLLAMA_MODEL
     country: str = ""       # ISO 2 letras (festivos); vacío → se detecta de Windows y se guarda
     avatar: bool = True     # personaje animado junto al chat
+    floater: bool = True    # Tributary en el escritorio: con la app minimizada y recordatorios con ella cerrada
 
     @classmethod
     def load(cls) -> "Settings":
@@ -31,7 +32,7 @@ class Settings:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             settings = cls(**{k: data.get(k, "") for k in ("db_path", "email", "language", "model", "country")},
-                           avatar=bool(data.get("avatar", True)))
+                           avatar=bool(data.get("avatar", True)), floater=bool(data.get("floater", True)))
         except (OSError, ValueError):
             return cls()
         if path != SETTINGS_PATH:

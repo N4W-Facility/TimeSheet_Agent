@@ -50,11 +50,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$dirs = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'));" ^
   "foreach ($d in $dirs) { $l = $s.CreateShortcut((Join-Path $d 'TimeSheet Agent.lnk'));" ^
   "  $l.TargetPath = $env:LAUNCHER; $l.WorkingDirectory = $env:TSA_HOME; $l.IconLocation = $env:ICON;" ^
-  "  $l.Description = 'TimeSheet Agent - hours for Workday and N4W'; $l.Save() }"
+  "  $l.Description = 'TimeSheet Agent - hours for Workday and N4W'; $l.Save() }" ^
+  "; $t = $s.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Startup')) 'TimeSheet Agent - Tributary.lnk'));" ^
+  "  $t.TargetPath = (Join-Path $env:TSA_HOME 'mamba\envs\timesheet-agent\pythonw.exe');" ^
+  "  $q = [char]34; $t.Arguments = $q + (Join-Path $env:APP_DIR 'companion.py') + $q; $t.WorkingDirectory = $env:TSA_HOME;" ^
+  "  $t.IconLocation = $env:ICON; $t.Description = 'TimeSheet Agent - Tributary reminders'; $t.Save()"
 if errorlevel 1 (
     echo      WARNING: could not create the shortcuts. You can open the app with %LAUNCHER%
 ) else (
     echo      Desktop and Start menu: "TimeSheet Agent"
+    echo      Tributary starts with Windows ^(reminders and updates^)
 )
 
 echo [3/4] Registering in "Installed apps"...

@@ -73,7 +73,10 @@ def reaction(text: str):
 
 
 class Avatar:
-    def __init__(self, master, bg: str, height: int):
+    def __init__(self, master, bg: str, height: int, cutout: bool = False):
+        """cutout: bordes sin semitransparencias, para un fondo que Windows vuelve transparente
+        (Tributary sobre el escritorio): sin reflejo, luz del pecho ni fundidos."""
+        self.cutout = cutout
         with open(os.path.join(ASSETS, "layers.json"), encoding="utf-8") as f:
             meta = json.load(f)
         k = height / meta["size"][1]
@@ -82,11 +85,14 @@ class Avatar:
         self.canvas = tk.Canvas(master, width=self.w, height=self.h + 4 * self.pad, bg=bg,
                                 highlightthickness=0, bd=0)
 
-        def scaled(name):
+        def scaled(name, solid=False):
             im = Image.open(os.path.join(ASSETS, name)).convert("RGBA")
-            return im.resize((max(1, round(im.width * k)), max(1, round(im.height * k))), Image.LANCZOS)
+            im = im.resize((max(1, round(im.width * k)), max(1, round(im.height * k))), Image.LANCZOS)
+            if solid:                               # la silueta; los parches de la cara caen sobre ella
+                im.putalpha(im.getchannel("A").point(lambda v: 255 if v >= 128 else 0))
+            return im
 
-        self._poses = {name: scaled(file) for name, file in meta["poses"].items()}
+        self._poses = {name: scaled(file, cutout) for name, file in meta["poses"].items()}
         self._pose_zones = meta["pose_zones"]
         self._patches = {name: (ImageTk.PhotoImage(scaled(p["file"])),
                                 (round(p["xy"][0] * k), round(p["xy"][1] * k)), p["zone"])
@@ -352,7 +358,7 @@ class Avatar:
         self._idle_life(now, base)
         base = self._current_pose(now)              # el bostezo pudo empezar ahora
         if base != self._base:                      # cambio de pose: crossfade
-            if self._pose is not None:
+            if self._pose is not None and not self.cutout:
                 self._fade = (self._pose, now)
             self._base = base
         pose = self._pose = self._frame_of(base, now)   # cuadros del mismo gesto: sin fundido
@@ -417,14 +423,18 @@ class Avatar:
                 self._show(item, None)
 
         # Luz del pecho que late y reflejo bajo el cuerpo
+        if self.cutout:
+            return self._dots_frame(now, x0, y0)
         g = (math.sin(2 * math.pi * now / GLOW_S) + 1) / 2
         gx, gy = self._glow_xy
         self._show(self._glow, self._glows[round(g * (GLOW_LEVELS - 1))], x0 + gx, y0 + gy)
         lift = (phase + 1) / 2 if t >= 0.45 else 1.0
         self._show(self._shadow, self._shadows[round(lift * (GLOW_LEVELS - 1))],
                    self.w / 2, top + self.h + self.pad * 3)
+        self._dots_frame(now, x0, y0)
 
-        # Puntos suspensivos mientras piensa
+    def _dots_frame(self, now, x0, y0):
+        """Puntos suspensivos mientras piensa."""
         if self.busy and not self.waiting and now >= self._talk[2]:
             n = int(now * 3) % 4
             self.canvas.itemconfigure(self._dots, text="•" * n)

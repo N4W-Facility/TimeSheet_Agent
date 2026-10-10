@@ -740,6 +740,61 @@ MESSAGES = {
         "es": "Si algo cambió, dímelo, p. ej. “{add}…” o “{remove}”.",
         "pt": "Se algo mudou, me diga, ex.: “{add}…” ou “{remove}”.",
     },
+    # ── Tributary en el escritorio (ui/floater.py, companion.py) ──
+    "floater_here": {
+        "en": "I'm still here to help you. Click me to come back.",
+        "es": "Sigo aquí para ayudarte. Haz clic en mí para volver.",
+        "pt": "Continuo aqui para te ajudar. Clique em mim para voltar.",
+    },
+    "floater_waiting": {
+        "en": "I need you: there's a question waiting for your answer. Click me.",
+        "es": "Te necesito: hay una pregunta esperando tu respuesta. Haz clic en mí.",
+        "pt": "Preciso de você: há uma pergunta esperando sua resposta. Clique em mim.",
+    },
+    "floater_later": {"en": "Later", "es": "Más tarde", "pt": "Mais tarde"},
+    "remind_month_end": {
+        "en": "Today is the last business day of {month}. Don't forget your timesheet! Click me and we'll do it together.",
+        "es": "Hoy es el último día hábil de {month}. ¡No olvides hacer tu hoja de tiempos! Haz clic en mí y la hacemos juntos.",
+        "pt": "Hoje é o último dia útil de {month}. Não esqueça sua folha de horas! Clique em mim e fazemos juntos.",
+    },
+    "remind_prev_month": {
+        "en": "{month} isn't in Workday yet. Click me and we'll close it.",
+        "es": "{month} todavía no está en Workday. Haz clic en mí y lo cerramos.",
+        "pt": "{month} ainda não está no Workday. Clique em mim e fechamos.",
+    },
+    "remind_update": {
+        "en": "There's a new version of TimeSheet Agent ({version}). Shall I install it?",
+        "es": "Hay una versión nueva de TimeSheet Agent ({version}). ¿La instalo?",
+        "pt": "Há uma versão nova do TimeSheet Agent ({version}). Posso instalar?",
+    },
+    "update_btn": {"en": "Update", "es": "Actualizar", "pt": "Atualizar"},
+    "update_notes": {"en": "What's new", "es": "Ver novedades", "pt": "Novidades"},
+    "update_open_app": {"en": "Open the app", "es": "Abrir la app", "pt": "Abrir o app"},
+    "update_close_app": {
+        "en": "To update, close TimeSheet Agent. As soon as you close it, I'll take it from there.",
+        "es": "Para actualizar, cierra TimeSheet Agent. En cuanto la cierres, sigo yo.",
+        "pt": "Para atualizar, feche o TimeSheet Agent. Assim que você fechar, eu continuo.",
+    },
+    "update_working": {
+        "en": "Downloading and installing {version}… it won't take long.",
+        "es": "Descargando e instalando la {version}… no tardo.",
+        "pt": "Baixando e instalando a {version}… não demoro.",
+    },
+    "update_done": {
+        "en": "✓ Done, you now have {version}.",
+        "es": "✓ Listo, ya tienes la {version}.",
+        "pt": "✓ Pronto, você já tem a {version}.",
+    },
+    "update_done_env": {
+        "en": "✓ I installed {version}. Open the app to finish: it prepares Python again and can take a few minutes.",
+        "es": "✓ Instalé la {version}. Abre la app para terminar: vuelve a preparar Python y puede tardar unos minutos.",
+        "pt": "✓ Instalei a {version}. Abra o app para terminar: ele prepara o Python de novo e pode levar alguns minutos.",
+    },
+    "update_failed": {
+        "en": "⚠ I couldn't update (no connection or files in use). You keep the current version; I'll try again later.",
+        "es": "⚠ No pude actualizar (sin conexión o archivos en uso). Sigues con la versión actual; lo intento más tarde.",
+        "pt": "⚠ Não consegui atualizar (sem conexão ou arquivos em uso). Você continua com a versão atual; tento mais tarde.",
+    },
 }
 
 

@@ -8,6 +8,17 @@ The agent works only with your hours and your projects. It never submits anythin
 
 You talk to **Tributary**, an animated water spirit who lives next to the chat. She says each reply as it appears, listens while you type, thinks while she works, points at the cards that need your answer and celebrates when a step is done. To hide her, turn off *Show the avatar* in Settings (⚙).
 
+**Tributary on your desktop.** When you minimize the app, Tributary stays floating on the desktop and tells you *"I'm still here to help you"*. If the agent needs your answer or finishes a step while you're away, she tells you there. Click her to bring the app back. Drag her anywhere and she remembers the spot. With the app closed, she shows up only when there is something to remind you of. Click her and the app opens; *Later* asks again in an hour; ✕ hides her until tomorrow. She reminds you:
+
+- on the **last business day of the month** (weekdays that are not public holidays in your base country), if Workday isn't filled yet;
+- in the **first 3 business days of a month**, if last month is still missing in Workday;
+
+These reminders appear on weekdays from 9:00 to 18:00, only while the app is closed.
+
+**Updates with Tributary.** Tributary starts with Windows. When there's internet, she checks GitHub at startup and every 6 hours. If there is a newer release than the one installed, she asks *"There's a new version (v1.3). Shall I install it?"* (any day, 8:00–20:00). Nothing is installed until you press **Update**. *What's new* opens the release notes, and *Later* asks again in an hour. If the app is open, she asks you to close it and continues on her own as soon as you do. She then downloads and installs the new version, tells you when it's ready and restarts with it. If the new version needs to prepare Python again, she asks you to open the app to finish. If anything fails, you keep your current version.
+
+To turn her off, use *Tributary on the desktop* in Settings (⚙).
+
 ---
 
 ## What it can do
@@ -120,6 +131,7 @@ Mark each day off in Outlook as an **8-hour block** (or an all-day event) with a
 | Workday picked the wrong task | The confirmation card for that week lists any choice the agent made automatically. Fix it in Workday before approving. |
 | A leave type is not in your Workday Absence menu | XX01 (Maternity) and XX04 (Compensation) are not available for everyone. The agent tells you to enter them by hand. |
 | Wrong country for holidays | Click 📍 at the top or say *"change my country"*. |
+| Tributary doesn't show up on the desktop | Check *Tributary on the desktop* in Settings (⚙) and open the app once (that registers her with Windows). Errors go to `%LOCALAPPDATA%\TimeSheetAgent\companion.log`. |
 
 ---
 
@@ -131,6 +143,8 @@ app/TimeSheet_Agent.bat   launcher: update check, Python env, Ollama + model, op
 app/update.ps1        auto-update from the latest GitHub release     app/uninstall.bat
 app/app.py            chat app (CustomTkinter)          app/cli.py    command-line flows
 app/ui/avatar.py      Tributary, the animated avatar (Canvas + Pillow); layers in app/ui/avatar/
+app/ui/floater.py     Tributary on the desktop (borderless, transparent, always on top)
+app/companion.py      reminders with the app closed (Startup shortcut, one instance); app/core/reminders.py
 avatar/               source images + build_avatar.py, which aligns them into those layers
 app/agent/            intent parsing (Ollama), dialogue, messages (en/es/pt), suggestions
 app/pipeline.py       independent steps with callbacks (read, prorate, Workday, N4W)
@@ -141,6 +155,7 @@ app/tests/            pytest suite        app/eval_intents.py   intent accuracy 
 
 - Development: run `app\TimeSheet_Agent.bat` from the repository. It never auto-updates; only the installed copy does.
 - Run the tests with the app's environment, from `app\`: `%LOCALAPPDATA%\TimeSheetAgent\mamba\envs\timesheet-agent\python.exe -m pytest tests`.
+- Try the desktop reminder right away: `python companion.py --demo` (from `app\`, any day and hour). `--demo-update` offers a fake version; accepting runs the real `update.ps1` (from the repo it only reports "up to date").
 - After changing the model prompt in `app/agent/llm.py`, run `eval_intents.py`. Small models are sensitive to prompt wording.
 
 ### Publishing a new version

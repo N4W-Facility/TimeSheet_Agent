@@ -91,6 +91,8 @@ if exist "%ENV_DIR%\python.exe" (
         goto :OLLAMA
     )
     echo      environment.yml changed - rebuilding environment...
+    :: Tributary del escritorio usa el pythonw del ambiente: cerrarlo para poder borrarlo
+    powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'pythonw.exe' -and $_.CommandLine -like '*companion.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
     "%MAMBA_EXE%" env remove -y -r "%MAMBA_ROOT_PREFIX%" -n %ENV_NAME%
 ) else (
     echo      Creating environment - first time only, this can take a few minutes...

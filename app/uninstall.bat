@@ -31,10 +31,14 @@ choice /c YN /m "Delete them too"
 if not errorlevel 2 set "WIPE_DATA=1"
 
 echo.
+echo Closing Tributary on the desktop...
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'pythonw.exe' -and $_.CommandLine -like '*companion.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
+
 echo Removing shortcuts...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "foreach ($d in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {" ^
-  "  Remove-Item -LiteralPath (Join-Path $d 'TimeSheet Agent.lnk') -Force -ErrorAction SilentlyContinue }"
+  "  Remove-Item -LiteralPath (Join-Path $d 'TimeSheet Agent.lnk') -Force -ErrorAction SilentlyContinue }" ^
+  "; Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Startup')) 'TimeSheet Agent - Tributary.lnk') -Force -ErrorAction SilentlyContinue"
 
 echo Removing the application and its Python environment...
 rmdir /s /q "%TSA_HOME%\app" 2>nul

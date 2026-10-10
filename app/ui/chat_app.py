@@ -8,17 +8,20 @@ import os
 import threading
 import time
 import tkinter as tk
+from datetime import date, datetime
 from tkinter import filedialog
 
 import customtkinter as ctk
 
 import config
-from agent import llm, suggest
+from agent import i18n, llm, suggest
 from agent.agent import Agent
 from agent.settings import Settings
-from core import holidays_cal
+from core import holidays_cal, reminders
 from pipeline import Decision
+from ui import autostart
 from ui.avatar import Avatar, talk_rate
+from ui.floater import Floater, reminder_text
 
 # ── Paleta ───────────────────────────────────────────────────
 BG         = "#09090b"
@@ -47,6 +50,8 @@ ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
 MAX_DROPDOWN = 5
+REMIND_MS = 5 * 60 * 1000   # minimizada: cada cuánto mira si toca un recordatorio
+FLOAT_MAX = 180             # minimizada: lo que dice Tributary afuera (el resto, en el chat)
 
 
 def _com_init():
@@ -85,6 +90,13 @@ class ChatApp:
         self._saying = None       # burbuja que se está escribiendo
 
         self._build_ui()
+        # Tributary en el escritorio: minimizada, sigue afuera; clic → vuelve la ventana
+        self.floater = None
+        self._reminder = None
+        self.root.bind("<Unmap>", self._on_unmap, add="+")
+        self.root.bind("<Map>", self._on_map, add="+")
+        self.root.after(2000, self._start_companion)
+        self.root.after(REMIND_MS, self._remind)
         threading.Thread(target=self._check_ollama, daemon=True).start()
         self.root.after(200, lambda: self._run_agent(self.agent.greet))
         if self.avatar:
@@ -407,7 +419,11 @@ class ChatApp:
             self._avatar_waiting(False)
             event.set()
 
-        self.root.after(0, lambda: build(done))
+        def build_and_call():
+            build(done)
+            if self._minimized():
+                self._float(i18n.tr("floater_waiting", self.agent.lang))
+        self.root.after(0, build_and_call)
         self._avatar_waiting(True)
         self._set_status("Waiting for your answer...", AMBER)
         event.wait()
@@ -425,7 +441,12 @@ class ChatApp:
 
     def say(self, text: str):
         color = AMBER if text.startswith("⚠") else TEXT
-        self.root.after(0, lambda: self._agent_bubble(text, color))
+
+        def build():
+            self._agent_bubble(text, color)
+            if self._minimized():                   # que se entere aunque no esté mirando el chat
+                self._float(text if len(text) <= FLOAT_MAX else text[:FLOAT_MAX - 1].rstrip() + "…")
+        self.root.after(0, build)
 
     def draft(self, text: str) -> int:
         """Burbuja que se muestra ya y luego se reemplaza (revise) por la respuesta redactada."""
@@ -663,6 +684,8 @@ class ChatApp:
         self.busy = busy
         if self.avatar:
             self.avatar.set_busy(busy)
+        if self.floater:
+            self.floater.set_busy(busy)
         state = "disabled" if busy else "normal"
         self.entry.configure(state=state)
         self.btn_send.configure(state=state)
@@ -697,6 +720,86 @@ class ChatApp:
         """Esperando una tarjeta: el avatar señala la tablet (se llama desde el hilo del agente)."""
         if self.avatar:
             self.root.after(0, lambda: self.avatar.set_waiting(waiting))
+
+    # ── Tributary en el escritorio (ui/floater.py) ───────────
+
+    def _minimized(self) -> bool:
+        try:
+            return self.root.state() == "iconic"
+        except tk.TclError:
+            return False
+
+    def _get_floater(self):
+        if self.floater is None and self.settings.floater:
+            try:
+                scale = ctk.ScalingTracker.get_widget_scaling(self.root)
+                self.floater = Floater(self.root, scale, reminders.Seen(config.HISTORY_DB))
+                self.floater.set_busy(self.busy)
+            except Exception as e:                  # sin capas/Pillow: la app sigue sin él
+                self.floater = False
+                self.log(f"⚠ Tributary on the desktop not available: {e}")
+        return self.floater or None
+
+    def _float(self, text: str, on_later=None, on_close=None):
+        floater = self._get_floater() if self.settings.floater else None
+        if floater:
+            later = [(f"⏰ {i18n.tr('floater_later', self.agent.lang)}", on_later, False)] if on_later else []
+            floater.show(text, self._restore, on_close, later)
+
+    def _on_unmap(self, event):
+        if event.widget is self.root:
+            self.root.after(150, lambda: self._minimized() and self._float(
+                i18n.tr("floater_here", self.agent.lang)))
+
+    def _on_map(self, event):
+        if event.widget is self.root and self.floater:
+            self.floater.hide()
+
+    def _restore(self):
+        if self._reminder:                          # vino por un recordatorio: ya está atendido
+            self._seen().mark(self._reminder.key, date.today())
+            self._reminder = None
+        if self.floater:
+            self.floater.hide()
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+
+    def _seen(self):
+        return self.floater.store if self.floater else reminders.Seen(config.HISTORY_DB)
+
+    def _remind(self):
+        """Minimizada: los recordatorios los dice su Tributary (el acompañante calla con la app abierta)."""
+        try:
+            now = datetime.now()
+            if self._minimized() and self.settings.floater and reminders.in_hours(now):
+                due = reminders.due(now.date(), reminders.workday_days(config.HISTORY_DB),
+                                    self.agent._country())
+                r = self._seen().pending(due, now)
+                if r and (not self._reminder or r.key != self._reminder.key):
+                    self._reminder = r
+                    self._float(reminder_text(r, self.agent.lang), self._remind_later, self._remind_close)
+        except Exception as e:
+            self.log(f"Reminders unavailable: {e}")
+        self.root.after(REMIND_MS, self._remind)
+
+    def _remind_later(self):
+        if self._reminder:
+            self._seen().snooze(self._reminder.key, datetime.now())
+        self._reminder = None
+        self._float(i18n.tr("floater_here", self.agent.lang))
+
+    def _remind_close(self):
+        if self._reminder:
+            self._seen().mark(self._reminder.key, date.today())
+        self._reminder = None
+        self.floater.hide()
+
+    def _start_companion(self):
+        """Acompañante (companion.py): avisa con la app cerrada; arranca también al iniciar Windows."""
+        autostart.sync(self.settings.floater)
+        if self.settings.floater:
+            autostart.launch(force=os.environ.get("TSA_COMPANION") == "1")
 
     def _toggle_log(self):
         self.log_visible = not self.log_visible
@@ -742,7 +845,7 @@ class ChatApp:
     def _open_settings(self):
         win = ctk.CTkToplevel(self.root)
         win.title("Settings")
-        win.geometry("520x250")
+        win.geometry("520x290")
         win.resizable(False, False)
         win.configure(fg_color=BG)
         win.transient(self.root)
@@ -760,12 +863,20 @@ class ChatApp:
         avatar_var = ctk.BooleanVar(value=self.settings.avatar)
         ctk.CTkSwitch(win, text="Show the avatar", variable=avatar_var, font=(FONT, 11),
                       text_color=TEXT, progress_color=BLUE).pack(anchor="w", padx=20, pady=(10, 0))
+        floater_var = ctk.BooleanVar(value=self.settings.floater)
+        ctk.CTkSwitch(win, text="Tributary on the desktop (when minimized, and reminders)",
+                      variable=floater_var, font=(FONT, 11), text_color=TEXT,
+                      progress_color=BLUE).pack(anchor="w", padx=20, pady=(8, 0))
 
         def save():
             self.settings.email = email_var.get().strip()
             self.settings.avatar = avatar_var.get()
+            self.settings.floater = floater_var.get()
             self.settings.save()
             self._show_avatar(self.settings.avatar)
+            if not self.settings.floater and self.floater:
+                self.floater.hide()
+            self._start_companion()
             win.destroy()
 
         ctk.CTkButton(win, text="Save", width=100, height=34, font=(FONT, 12, "bold"),
