@@ -8,6 +8,54 @@ import re
 import unicodedata
 
 MESSAGES = {
+    "ask_country_detected": {
+        "en": "Before we start: which country are you based in? I use it for public holidays and expected hours. "
+              "Your Windows region says {country} — confirm it or pick another one.",
+        "es": "Antes de empezar: ¿en qué país estás basado? Lo uso para los festivos y las horas esperadas. "
+              "Según la región de Windows es {country}: confírmalo o elige otro.",
+        "pt": "Antes de começar: em que país você está baseado? Uso isso para os feriados e as horas esperadas. "
+              "Pela região do Windows é {country}: confirme ou escolha outro.",
+    },
+    "ask_country": {
+        "en": "Before we start: which country are you based in? I use it for public holidays and expected hours.",
+        "es": "Antes de empezar: ¿en qué país estás basado? Lo uso para los festivos y las horas esperadas.",
+        "pt": "Antes de começar: em que país você está baseado? Uso isso para os feriados e as horas esperadas.",
+    },
+    "q_country": {
+        "en": "Your base country (type to search)",
+        "es": "Tu país base (escribe para buscar)",
+        "pt": "Seu país base (digite para buscar)",
+    },
+    "q_country_change": {
+        "en": "Change your base country (type to search)",
+        "es": "Cambiar tu país base (escribe para buscar)",
+        "pt": "Mudar seu país base (digite para buscar)",
+    },
+    "country_required": {
+        "en": "⚠ I need your base country before doing anything else. Write any message to choose it.",
+        "es": "⚠ Necesito tu país base antes de hacer cualquier otra cosa. Escribe cualquier mensaje para elegirlo.",
+        "pt": "⚠ Preciso do seu país base antes de qualquer outra coisa. Escreva qualquer mensagem para escolhê-lo.",
+    },
+    "country_set": {
+        "en": "Done: your base country is {country}. To change it, say “change my country” or click 📍 at the top.",
+        "es": "Listo: tu país base es {country}. Para cambiarlo, di “cambia mi país” o haz clic en 📍 arriba.",
+        "pt": "Pronto: seu país base é {country}. Para mudar, diga “mudar meu país” ou clique em 📍 no topo.",
+    },
+    "country_changed": {
+        "en": "Done: your base country changed from {old} to {country}. Holidays are checked with {country} from now on.",
+        "es": "Listo: tu país base pasó de {old} a {country}. Desde ahora reviso los festivos de {country}.",
+        "pt": "Pronto: seu país base mudou de {old} para {country}. A partir de agora verifico os feriados de {country}.",
+    },
+    "country_same": {
+        "en": "Your base country is still {country}.",
+        "es": "Tu país base sigue siendo {country}.",
+        "pt": "Seu país base continua sendo {country}.",
+    },
+    "country_kept": {
+        "en": "No change: your base country is still {country}.",
+        "es": "Sin cambios: tu país base sigue siendo {country}.",
+        "pt": "Sem mudanças: seu país base continua sendo {country}.",
+    },
     "need_email": {
         "en": "Please set your email in Settings (⚙) first.",
         "es": "Primero escribe tu correo en Ajustes (⚙).",
@@ -166,7 +214,8 @@ MESSAGES = {
                "   › “{import_excel}”\n   › “{sync}”\n\n"
                "🌴 6 · LEAVE & HOLIDAYS — mark each day off in Outlook as an 8 h block\n"
                "   with an XX category (XX05 holiday, XX09 vacation, XX08 sick…).\n"
-               "   N4W gets 8 h, Workday gets 1 day, and I warn you about forgotten holidays.\n\n"
+               "   N4W gets 8 h, Workday gets 1 day, and I warn you about forgotten holidays.\n"
+               "   📍 Holidays follow your base country: “change my country” or 📍 at the top.\n\n"
                "🧹 Clean screen: “clear chat” or the 🗑 button (your hours and history stay).\n\n"
                "🔒 Everything runs on your PC (local AI model). Write naturally, in English,\n"
                "   Spanish or Portuguese."),
@@ -185,7 +234,8 @@ MESSAGES = {
                "   › “{import_excel}”\n   › “{sync}”\n\n"
                "🌴 6 · LICENCIAS Y FESTIVOS — marca cada día libre en Outlook como bloque\n"
                "   de 8 h con una categoría XX (XX05 festivo, XX09 vacaciones, XX08 enfermedad…).\n"
-               "   N4W recibe 8 h, Workday 1 día, y te aviso si olvidaste un festivo.\n\n"
+               "   N4W recibe 8 h, Workday 1 día, y te aviso si olvidaste un festivo.\n"
+               "   📍 Los festivos son los de tu país base: “cambia mi país” o 📍 arriba.\n\n"
                "🧹 Pantalla limpia: “borra el chat” o el botón 🗑 (tus horas e historial quedan).\n\n"
                "🔒 Todo corre en tu PC (modelo de IA local). Escríbeme natural, en español,\n"
                "   inglés o portugués."),
@@ -204,7 +254,8 @@ MESSAGES = {
                "   › “{import_excel}”\n   › “{sync}”\n\n"
                "🌴 6 · LICENÇAS E FERIADOS — marque cada dia de folga no Outlook como bloco\n"
                "   de 8 h com uma categoria XX (XX05 feriado, XX09 férias, XX08 doença…).\n"
-               "   O N4W recebe 8 h, o Workday 1 dia, e eu aviso se você esqueceu um feriado.\n\n"
+               "   O N4W recebe 8 h, o Workday 1 dia, e eu aviso se você esqueceu um feriado.\n"
+               "   📍 Os feriados são os do seu país base: “mudar meu país” ou 📍 no topo.\n\n"
                "🧹 Tela limpa: “limpa o chat” ou o botão 🗑 (suas horas e histórico ficam).\n\n"
                "🔒 Tudo roda no seu PC (modelo de IA local). Escreva naturalmente, em português,\n"
                "   espanhol ou inglês."),

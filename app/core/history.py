@@ -5,6 +5,7 @@
 #   events  : pasos realizados (read, prorate, workday, n4w)
 #   projects: "mis proyectos" (códigos en los que trabaja el usuario; removed = quitado)
 #   dismissed: propuestas de revisión rechazadas (no se repiten por un tiempo)
+#   profile : datos del usuario (country = país base, confirmado por él)
 # Lo "cargado" de un mes es la versión prorrateada si existe; si no, la de Outlook.
 # ============================================================
 import os
@@ -30,6 +31,8 @@ CREATE TABLE IF NOT EXISTS projects (
     code TEXT PRIMARY KEY, added TEXT, removed TEXT);
 CREATE TABLE IF NOT EXISTS dismissed (
     code TEXT, reason TEXT, at TEXT, PRIMARY KEY (code, reason));
+CREATE TABLE IF NOT EXISTS profile (
+    key TEXT PRIMARY KEY, value TEXT, updated TEXT);
 """
 
 # Por cada mes: filas prorrateadas si existen, si no las de Outlook
@@ -115,6 +118,15 @@ class History:
     def targets(self) -> Dict[str, dict]:
         rows = self._run(lambda c: list(c.execute("SELECT code, pct, hours FROM targets")))
         return {code: {'pct': pct, 'hours': hrs} for code, pct, hrs in rows}
+
+    # ── Perfil del usuario ───────────────────────────────────
+    def profile(self, key: str) -> str:
+        row = self._run(lambda c: c.execute("SELECT value FROM profile WHERE key = ?", (key,)).fetchone())
+        return row[0] if row and row[0] else ""
+
+    def set_profile(self, key: str, value: str):
+        self._run(lambda c: c.execute("INSERT OR REPLACE INTO profile VALUES (?, ?, ?)",
+                                      (key, value, datetime.now().isoformat(timespec='seconds'))))
 
     # ── Mis proyectos ────────────────────────────────────────
     def my_projects(self) -> List[str]:

@@ -71,7 +71,7 @@ Mark each day off in Outlook as an **8-hour block** (or an all-day event) with a
 - **N4W Facility** receives **8 h** for that day, reported as `OF0104`.
 - **Workday** receives **1** (one day) under *Time Type → Absence*. It works the same whatever language your Workday is in.
 - The agent creates the leave categories in Outlook if they are missing.
-- **Holiday check:** your country is taken from your Windows region, and the agent warns you when a public holiday has no XX05. While filling Workday, it also reads the holidays Workday shows in each day's header and warns you before saving.
+- **Holiday check:** on first launch the agent asks for your **base country** (it proposes your Windows region; nothing else works until you confirm). It is shown at the top (📍) — click it or say *"change my country"* to change it. The agent warns you when a public holiday has no XX05. While filling Workday, it also reads the holidays Workday shows in each day's header and warns you before saving.
 - Leave days count toward your daily 8 h but **not** toward your dedication % per project.
 
 ---
@@ -119,7 +119,7 @@ Mark each day off in Outlook as an **8-hour block** (or an all-day event) with a
 | Hours are blocked | The project is closed, not yet open, or missing from the global list. Move those hours in Outlook and read the month again. |
 | Workday picked the wrong task | The confirmation card for that week lists any choice the agent made automatically. Fix it in Workday before approving. |
 | A leave type is not in your Workday Absence menu | XX01 (Maternity) and XX04 (Compensation) are not available for everyone. The agent tells you to enter them by hand. |
-| Wrong country for holidays | Set `"country"` (two letters, e.g. `"CO"`, `"US"`, `"BR"`) in `%LOCALAPPDATA%\TimeSheetAgent\settings.json`. |
+| Wrong country for holidays | Click 📍 at the top or say *"change my country"*. |
 
 ---
 

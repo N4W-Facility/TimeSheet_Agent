@@ -34,6 +34,9 @@ class AgentUI(Protocol):
     def confirm_send(self, title: str, detail: str, warning: str,
                      ok: str, cancel: str) -> bool: ...         # bloqueante; acción irreversible
     def pick_file(self, title: str) -> Optional[str]: ...       # explorador de archivos (bloqueante)
+    def pick_country(self, question: str, current: str,
+                     required: bool) -> Optional[str]: ...      # lista de países con buscador (bloqueante)
+    def set_country(self, name: str): ...                       # país base en la cabecera
     def chart(self, spec: dict): ...                            # tarjeta con gráfica (core.charts)
     def clear(self): ...                                        # vacía la conversación en pantalla
 
@@ -118,6 +121,12 @@ MY_PROJECTS_RE = re.compile(
 DELETE_CAT_RE = re.compile(r"\b(elimina\w*|borra\w*|quita\w*|delete|remove|erase|apaga\w*|exclui\w*|remov\w*)\b.*\bcategor")
 # "busca los proyectos de Meta": buscador por programa, nombre o fase (agent/search.py)
 SEARCH_RE = re.compile(r"\b(busca\w*|encuentra\w*|search|find|look for|procur\w*)\b")
+# "Cambia mi país" → elegir otro país base (sin LLM)
+COUNTRY_RE = re.compile(
+    r"\b(cambia\w*|cambio|actualiza\w*|change|update|set|mud\w*|altera\w*|atualiza\w*)\b.{0,25}"
+    r"\b(pais|ubicacion|localizacion|localidad|country|location|localizacao|localidade)\b")
+# "Me mudé a Brasil": cambio de país solo si nombra un país
+MOVED_RE = re.compile(r"\b(me mude|me fui a vivir|me traslade|i moved|i relocated|me mudei|mudei)\b")
 # "crea la categoría de SE3501": el proyecto se valida y se agrega (aunque no diga "trabajo en")
 CATEGORY_RE = re.compile(r"\bcategor")
 # Pide releer a propósito: no se pregunta "¿lo vuelvo a leer?"
@@ -267,16 +276,58 @@ class Agent:
         return Pipeline(email=self.settings.email, callbacks=cb, country=self._country())
 
     def _country(self) -> str:
-        """País para los festivos: settings.json o, la primera vez, la región de Windows."""
-        if not self.settings.country:
-            self.settings.country = holidays_cal.detect_country()
-            if self.settings.country:
-                self.ui.log(f"Country (Windows region): {self.settings.country}")
-                try:
-                    self.settings.save()
-                except OSError:
-                    pass
-        return self.settings.country
+        """País base (festivos, horas esperadas): el que confirmó el usuario, guardado en el historial."""
+        return self.store.profile("country") or self.settings.country
+
+    def country_label(self) -> str:
+        """Nombre del país base para la cabecera ('' si aún no lo confirmó)."""
+        code = self.store.profile("country")
+        return holidays_cal.country_name(code) if code else ""
+
+    def ensure_country(self) -> bool:
+        """
+        El país base es obligatorio: sin él no se hace nada. La primera vez se propone
+        el de la región de Windows y el usuario lo confirma o elige otro.
+        """
+        if self.store.profile("country"):
+            return True
+        detected = self.settings.country or holidays_cal.detect_country()
+        name = holidays_cal.country_name(detected)
+        self.ui.say(self.m("ask_country_detected", country=name) if detected else self.m("ask_country"))
+        code = self.ui.pick_country(self.m("q_country"), detected, True)
+        if not code:
+            self.ui.say(self.m("country_required"))
+            return False
+        self._save_country(code)
+        self.ui.say(self.m("country_set", country=holidays_cal.country_name(code)))
+        return True
+
+    def change_country(self, text: str = ""):
+        """"Cambia mi país" o clic en la cabecera: la lista con el país nombrado (o el actual) marcado."""
+        current = self.store.profile("country")
+        if not current:
+            self.ensure_country()
+            return
+        proposed = holidays_cal.find_country(text) or current
+        code = self.ui.pick_country(self.m("q_country_change"), proposed, False)
+        if not code:
+            self.ui.say(self.m("country_kept", country=holidays_cal.country_name(current)))
+        elif code == current:
+            self.ui.say(self.m("country_same", country=holidays_cal.country_name(code)))
+        else:
+            self._save_country(code)
+            self.ui.say(self.m("country_changed", old=holidays_cal.country_name(current),
+                               country=holidays_cal.country_name(code)))
+
+    def _save_country(self, code: str):
+        self.store.set_profile("country", code)
+        self.settings.country = code
+        try:
+            self.settings.save()
+        except OSError:
+            pass
+        self.ui.log(f"Country: {code}")
+        getattr(self.ui, "set_country", lambda name: None)(holidays_cal.country_name(code))
 
     def _ensure_global(self):
         """Base global descargada una vez por sesión (antes de leer Outlook)."""
@@ -295,6 +346,13 @@ class Agent:
         if clear_lang:
             self._set_lang(clear_lang)
             self.clear_chat()
+            return
+        if not self.ensure_country():
+            return
+        country_lang = self._country_lang(text)
+        if country_lang:
+            self._set_lang(country_lang)
+            self.change_country(text)
             return
         if self.pending_targets and self._answer_target(text):
             return
@@ -500,6 +558,17 @@ class Agent:
             return "es"
         return "en"
 
+    @staticmethod
+    def _country_lang(text: str) -> Optional[str]:
+        """Idioma de un pedido de cambiar el país base ("cambia mi país"), o None si no lo es."""
+        norm = suggest._norm(text)
+        if not (COUNTRY_RE.search(norm) or (MOVED_RE.search(norm) and holidays_cal.find_country(text))):
+            return None
+        moved = MOVED_RE.search(norm)
+        if moved:                                   # el verbo dice el idioma ("me mudé a México")
+            return "pt" if "mudei" in moved.group(1) else "en" if moved.group(1).startswith("i ") else "es"
+        return i18n.detect_lang(text) or ("es" if re.search(r"\bpais\b", norm) else "en")
+
     def _my_projects_lang(self, text: str) -> Optional[str]:
         """Idioma de "¿en qué proyectos trabajo?" (sin códigos), o None si no lo es."""
         norm = " ".join(re.sub(r"[¿?¡!.,]", " ", suggest._norm(text)).split())
@@ -524,6 +593,8 @@ class Agent:
                          + (f" ({', '.join(done)})" if done else " (nothing submitted yet)"))
         else:
             lines.append("- No period read yet in this session.")
+        if self.country_label():
+            lines.append(f"- The user is based in {self.country_label()}.")
         mine = self.store.my_projects()
         if mine:
             lines.append(f"- My projects: {', '.join(mine[:15])}")
@@ -554,6 +625,8 @@ class Agent:
     def greet(self):
         """Bienvenida + retomar el paso pendiente o sugerir cómo empezar."""
         self.ui.say(self.m("welcome"))
+        if not self.ensure_country():
+            return
         self.start_hint()
 
     def clear_chat(self):

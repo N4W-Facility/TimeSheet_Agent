@@ -43,6 +43,12 @@ class FakeUI:
         self.picked = title
         return getattr(self, 'file', None)
 
+    country_pick = "CO"
+    def pick_country(self, question, current, required):
+        self.country_asks = getattr(self, 'country_asks', []) + [(current, required)]
+        return self.country_pick
+    def set_country(self, name): self.header = name
+
 
 def make_pipe(tmp_path, decide):
     return Pipeline(str(tmp_path), callbacks=Callbacks(decide=decide))
@@ -68,6 +74,13 @@ def test_choose_n4w_weeks_cancel(tmp_path):
 
 
 # ── agente ───────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _country_set(request, monkeypatch):
+    """El país base ya está confirmado, salvo en los tests del país."""
+    if "country" not in request.node.name:
+        monkeypatch.setattr(agent_mod.Agent, "ensure_country", lambda self: True)
+
 
 @pytest.fixture(autouse=True)
 def _no_narration(monkeypatch):
@@ -1272,3 +1285,83 @@ def test_search_nothing_found(env, monkeypatch):
     monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: llm.Intent(action="find_project", language="es"))
     agent.handle("busca el proyecto de Marte")
     assert ui.said[-1].startswith("No encontré proyectos")
+
+
+# ── país base (obligatorio) ──────────────────────────────────
+
+def test_country_asked_first_with_windows_region(env, monkeypatch):
+    agent, ui, pipe, send = env
+    monkeypatch.setattr(agent_mod.holidays_cal, "detect_country", lambda: "BR")
+    seen = []                                           # el pedido sigue, ya con el país guardado
+    monkeypatch.setattr(llm, "parse_intent",
+                        lambda *a, **k: seen.append(agent.store.profile("country")) or _intent("other"))
+    ui.country_pick = "CO"
+    agent.handle("read my hours of september")
+    assert seen == ["CO"]
+    assert ui.country_asks == [("BR", True)]           # el de Windows, propuesto y obligatorio
+    assert "Brazil" in ui.said[0]
+    assert agent.store.profile("country") == "CO" and agent.settings.country == "CO"
+    assert ui.header == "Colombia" and agent.country_label() == "Colombia"
+    assert agent._country() == "CO"
+
+
+def test_country_required_blocks_everything(env, monkeypatch):
+    agent, ui, pipe, send = env
+    monkeypatch.setattr(agent_mod.holidays_cal, "detect_country", lambda: "")
+    monkeypatch.setattr(llm, "parse_intent", lambda *a, **k: pytest.fail("nothing runs without a country"))
+    ui.country_pick = None
+    agent.handle("what can you do?")
+    assert ui.said[-1] == i18n.tr("country_required", "en") and not ui.cards
+    assert agent.store.profile("country") == ""
+
+
+def test_country_greet_asks_before_anything(env, monkeypatch):
+    agent, ui, pipe, send = env
+    monkeypatch.setattr(agent_mod.holidays_cal, "detect_country", lambda: "")
+    ui.country_pick = None
+    agent.greet()
+    assert pipe.refreshes == 0                          # ni siquiera la base global
+    ui.country_pick = "KE"
+    agent.greet()
+    assert agent.store.profile("country") == "KE" and pipe.refreshes == 1
+
+
+def test_country_asked_once(env):
+    agent, ui, pipe, send = env
+    agent.store.set_profile("country", "CO")
+    send("my_projects")
+    assert not getattr(ui, "country_asks", [])
+
+
+@pytest.mark.parametrize("text,lang,proposed", [
+    ("cambia mi país", "es", "CO"),
+    ("cambia mi país a Brasil", "es", "BR"),
+    ("change my country", "en", "CO"),
+    ("me mudé a México", "es", "MX"),
+    ("quero mudar meu país", "pt", "CO"),
+])
+def test_change_country_without_llm(env, monkeypatch, text, lang, proposed):
+    agent, ui, pipe, send = env
+    agent.store.set_profile("country", "CO")
+    monkeypatch.setattr(llm, "parse_intent", lambda *a, **k: pytest.fail("shortcut without LLM"))
+    ui.country_pick = "US"
+    agent.handle(text)
+    assert ui.country_asks == [(proposed, False)]       # se puede cancelar
+    assert agent.store.profile("country") == "US" and ui.header == "United States"
+    assert ui.said[-1] == i18n.tr("country_changed", lang, old="Colombia", country="United States")
+
+
+def test_change_country_cancel_keeps_it(env):
+    agent, ui, pipe, send = env
+    agent.store.set_profile("country", "CO")
+    ui.country_pick = None
+    agent.change_country()
+    assert agent.store.profile("country") == "CO"
+    assert ui.said[-1] == i18n.tr("country_kept", "en", country="Colombia")
+
+
+def test_country_search_by_spanish_name():
+    from core import holidays_cal
+    assert holidays_cal.search_countries("estados")[0] == "US"
+    assert holidays_cal.search_countries("bras")[0] == "BR"
+    assert holidays_cal.find_country("cambia mi país") is None

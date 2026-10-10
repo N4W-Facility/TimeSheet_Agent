@@ -16,6 +16,7 @@ import config
 from agent import llm, suggest
 from agent.agent import Agent
 from agent.settings import Settings
+from core import holidays_cal
 from pipeline import Decision
 from ui.avatar import Avatar, talk_rate
 
@@ -121,6 +122,11 @@ class ChatApp:
                                       font=(FONT, 11), text_color=MUTED, cursor="hand2")
         self.lbl_model.pack(side="right")
         self.lbl_model.bind("<Button-1>", self._model_menu)
+        # País base (obligatorio): clic → cambiarlo
+        self.lbl_country = ctk.CTkLabel(right, text="", font=(FONT, 11), cursor="hand2")
+        self.lbl_country.pack(side="right", padx=(0, 14))
+        self.lbl_country.bind("<Button-1>", lambda e: self._change_country())
+        self._show_country(self.agent.country_label())
 
         # Barra inferior (se empaqueta antes del chat para reservar espacio)
         bottom = ctk.CTkFrame(self.root, fg_color="transparent")
@@ -367,24 +373,30 @@ class ChatApp:
         return card
 
     def _buttons(self, card, ok_text, ok_color, ok_hover, on_ok, on_cancel, cancel_text="Cancel"):
+        """Confirmar / cancelar. cancel_text=None → sin cancelar (respuesta obligatoria)."""
         row = ctk.CTkFrame(card, fg_color="transparent")
         row.pack(fill="x", padx=14, pady=(6, 12))
         ok = ctk.CTkButton(row, text=ok_text, width=110, height=32, font=(FONT, 12, "bold"),
                            fg_color=ok_color, hover_color=ok_hover, corner_radius=6)
-        cancel = ctk.CTkButton(row, text=cancel_text, width=90, height=32, font=(FONT, 12),
-                               fg_color=BORDER, hover_color="#3f3f46", text_color=TEXT,
-                               corner_radius=6)
         ok.pack(side="right")
-        cancel.pack(side="right", padx=(0, 8))
+        buttons = [ok]
+        if cancel_text:
+            cancel = ctk.CTkButton(row, text=cancel_text, width=90, height=32, font=(FONT, 12),
+                                   fg_color=BORDER, hover_color="#3f3f46", text_color=TEXT,
+                                   corner_radius=6)
+            cancel.pack(side="right", padx=(0, 8))
+            buttons.append(cancel)
 
         def finish(result_fn, label, color):
-            ok.configure(state="disabled")
-            cancel.configure(state="disabled")
+            for b in buttons:
+                b.configure(state="disabled")
             ctk.CTkLabel(row, text=label, font=(FONT, 11), text_color=color).pack(side="left")
             result_fn()
 
         ok.configure(command=lambda: finish(on_ok, "✓ Confirmed", GREEN))
-        cancel.configure(command=lambda: finish(on_cancel, "✗ Cancelled", RED))
+        if cancel_text:
+            cancel.configure(command=lambda: finish(on_cancel, "✗ Cancelled", RED))
+        return ok
 
     def _wait(self, build) -> object:
         """Construye una tarjeta en el hilo de UI y bloquea el hilo del agente hasta la respuesta."""
@@ -518,6 +530,59 @@ class ChatApp:
                 filetypes=[("Excel files", "*.xlsx *.xlsm"), ("All files", "*.*")])
             done(path or None)
         return self._wait(build)
+
+    def pick_country(self, question: str, current: str, required: bool):
+        """Lista de países con buscador; el actual (o el de Windows) marcado. Obligatoria: sin cancelar."""
+        def build(done):
+            card = self._card(question, AMBER if required else BLUE)
+            query = ctk.StringVar()
+            entry = ctk.CTkEntry(card, textvariable=query, height=32, font=(FONT, 12), text_color=TEXT,
+                                 fg_color=INPUT_BG, border_color=BORDER,
+                                 placeholder_text="Colombia, Brasil, United States…")
+            entry.pack(fill="x", padx=14, pady=(0, 6))
+            body = ctk.CTkFrame(card, fg_color="transparent")
+            body.pack(fill="x", padx=10)
+            chosen = ctk.StringVar(value=current or "")
+
+            def refresh(*_):
+                for w in body.winfo_children():
+                    w.destroy()
+                codes = holidays_cal.search_countries(query.get())
+                if not query.get().strip() and current:      # sin buscar: el propuesto primero
+                    codes = [current] + [c for c in codes if c != current][:7]
+                if codes and chosen.get() not in codes:       # siempre hay uno marcado
+                    chosen.set(codes[0])
+                for code in codes:
+                    ctk.CTkRadioButton(body, text=f"{holidays_cal.country_name(code)}  ({code})",
+                                       variable=chosen, value=code, font=(FONT, 12), text_color=TEXT,
+                                       border_color=MUTED, fg_color=BLUE).pack(anchor="w", pady=3)
+                if not codes:
+                    ctk.CTkLabel(body, text="No country matches.", font=(FONT, 11),
+                                 text_color=MUTED).pack(anchor="w", pady=3)
+
+            query.trace_add("write", refresh)
+            refresh()
+            ok = self._buttons(card, "Confirm", GREEN, GREEN_HOV,
+                               lambda: done(chosen.get() or None), lambda: done(None),
+                               cancel_text=None if required else "Cancel")
+            entry.bind("<Return>", lambda e: chosen.get() and ok.invoke())
+            entry.focus_set()
+            self._scroll_bottom()
+        return self._wait(build)
+
+    def set_country(self, name: str):
+        self.root.after(0, lambda: self._show_country(name))
+
+    def _show_country(self, name: str):
+        """Cabecera: 📍 país base, o en ámbar mientras falte (es obligatorio)."""
+        if name:
+            self.lbl_country.configure(text=f"📍 {name}", text_color=TEXT)
+        else:
+            self.lbl_country.configure(text="📍 Set your country", text_color=AMBER)
+
+    def _change_country(self):
+        if not self.busy:
+            self._run_agent(self.agent.change_country)
 
     def decide(self, decision: Decision):
         def build(done):
