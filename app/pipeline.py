@@ -11,6 +11,7 @@
 # ============================================================
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, List, Optional
@@ -136,6 +137,19 @@ class Pipeline:
                 out['created'].append(cat.loc[code, 'Category'])
                 names.append(cat.loc[code, 'Category'])
         return out
+
+    def category_usage(self, code: str) -> tuple:
+        """(nombre de la categoría del código o None, reuniones que la tienen en el último año y el próximo)."""
+        name = database.find_category(code, outlook.list_categories())
+        if not name:
+            return None, 0
+        now = datetime.now()
+        entries = outlook.calendar_entries(now - timedelta(days=365), now + timedelta(days=365))
+        return name, sum(name in [c.strip() for c in re.split(r"[;,]", e['categories'])] for e in entries)
+
+    def delete_category(self, name: str) -> bool:
+        """Quita la categoría de la lista de Outlook (las reuniones conservan el texto, sin color)."""
+        return outlook.remove_category(name)
 
     def calendar_entries(self, start: datetime, end: datetime) -> List[dict]:
         """Reuniones del rango [start, end] con asunto y categorías."""

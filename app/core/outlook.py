@@ -200,6 +200,18 @@ def add_category(name: str) -> bool:
     return True
 
 
+def remove_category(name: str) -> bool:
+    """Quita una categoría de la lista de Outlook. False si no existía."""
+    import win32com.client
+
+    categories = win32com.client.Dispatch("Outlook.Application").Session.Categories
+    if name not in [categories.Item(i).Name for i in range(1, categories.Count + 1)]:
+        return False
+    categories.Remove(name)
+    log.info(f"Outlook category removed: {name}")
+    return True
+
+
 def get_active_email() -> Optional[str]:
     """Correo de la primera cuenta configurada en Outlook."""
     import win32com.client

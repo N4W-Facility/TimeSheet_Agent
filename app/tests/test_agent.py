@@ -107,6 +107,14 @@ class FakePipe:
                     {'subject': 'Coffee', 'start': datetime(2026, 10, 6, 9), 'hours': 0.5, 'categories': ''}]
         return [{'subject': 'Weekly sync', 'start': datetime(2026, 9, 7, 9), 'hours': 1.0, 'categories': 'P100'}]
 
+    def category_usage(self, code):
+        name = next((c for c in self.categories if c == code), None)
+        return (f"{code} | Task", 3) if name else (None, 0)
+
+    def delete_category(self, name):
+        self.deleted = getattr(self, 'deleted', []) + [name]
+        return True
+
     def assign_category(self, subject, starts, category):
         self.assigned.append((subject, len(starts), category))
         return len(starts)
@@ -489,8 +497,9 @@ def test_add_and_remove_projects_by_chat(env):
     assert "P300" in agent.store.my_projects() and "P300" in pipe.categories
     monkeypatch_intent(agent, "remove_project", project="P300")
     agent.handle("I don't work on P300 anymore")
-    assert "P300" not in agent.store.my_projects()
-    assert "Outlook categories are kept" in ui.said[-1]
+    assert "P300" not in agent.store.my_projects() and not ui.decisions   # quitar: sin tarjeta
+    assert "Its Outlook category stays as it is" in ui.said[-2]
+    assert "delete the category of P300" in ui.said[-1] and not getattr(pipe, 'deleted', [])
     send("my_projects")
     assert ui.cards[-1][0] == "My projects (2)"
 
@@ -665,10 +674,12 @@ def test_add_project_reports_created_and_existing_categories(env):
     agent.store.add_projects(['VIRT1'])
     pipe.outlook = {'P300'}                                         # P300 ya tiene categoría (otro nombre)
     agent.status = pipe.status
-    agent._add_codes(['P100', 'P300', 'VIRT1'])
-    said = " ".join(ui.said)
+    agent._add_codes(['P100', 'P300', 'VIRT1'], confirm=False)
     assert "VIRT1" in pipe.categories                               # ya en la lista: igual se revisa
-    assert "Created: P100" in said and "Already in Outlook (kept as they are): P300 | old name" in said
+    assert "VIRT1 was already in your projects. I created its Outlook category “VIRT1”." in ui.said
+    assert ("P100 wasn't in your projects; I assume you'll work on it, so I added it. "
+            "I created its Outlook category “P100”.") in ui.said
+    assert "Its Outlook category “P300 | old name” already existed." in ui.said[-1]
 
 
 def test_create_category_assumes_project_validates_and_offers_meetings(env, monkeypatch):
@@ -1174,3 +1185,36 @@ def test_read_guess_without_read_words_asks_again(env, monkeypatch):
     agent.handle("cuéntame algo de lo que hago")
     assert agent.pending_reread is None and len(ui.cards) == n
     assert ui.said[-1] == i18n.tr("clarify", "es") and "Ya leí" not in ui.said
+
+
+def test_add_project_never_hides_a_failed_category(env, monkeypatch):
+    agent, ui, pipe, send = env
+    monkeypatch.setattr(pipe, "ensure_categories", lambda codes: {'created': [], 'existing': []})
+    send("add_project", project="P300")
+    assert "P300" in agent.store.my_projects() and not ui.decisions
+    assert any("I assume you'll work on it" in t and "⚠ I couldn't create its Outlook category" in t
+               for t in ui.said)
+    assert not any("meetings that have no category" in t for t in ui.said)   # sin categoría: no se ofrece
+
+
+def test_delete_category_only_when_asked_and_confirmed(env, monkeypatch):
+    agent, ui, pipe, send = env
+    agent.status = pipe.status
+    pipe.categories = ['P100']
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent("remove_project", project="P100", language="es"))
+    ui.send_ok = False
+    agent.handle("elimina la categoría de P100")
+    assert ui.sends[-1][0] == "¿Eliminar la categoría de Outlook “P100 | Task”?"
+    assert "3 reuniones" in ui.sends[-1][2] and "desvinculadas" in ui.sends[-1][2]
+    assert not getattr(pipe, 'deleted', []) and "conservé" in ui.said[-1]
+    assert "P100" in agent.store.my_projects()                      # borrar la categoría no quita el proyecto
+    ui.send_ok = True
+    agent.handle("elimina la categoría de P100")
+    assert pipe.deleted == ["P100 | Task"] and ui.said[-1].startswith("✓ Eliminé")
+
+
+def test_delete_category_guess_without_explicit_request_asks(env, monkeypatch):
+    agent, ui, pipe, send = env
+    monkeypatch.setattr(llm, "parse_intent", lambda t, h, **k: _intent("delete_category", project="P100"))
+    agent.handle("ya terminé el P100")
+    assert not getattr(ui, 'sends', []) and ui.said[-1] == i18n.tr("clarify", "es")

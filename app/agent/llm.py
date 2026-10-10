@@ -20,7 +20,8 @@ STEPS = ["read_hours", "prorate", "fill_workday", "submit_n4w"]
 # "Mis proyectos" (la lista de códigos en los que trabaja el usuario)
 # Estado, control antes de cerrar y correcciones del periodo leído
 STATUS = ["status", "close_check", "edit_hours", "explain_prorate"]
-PROJECTS = ["my_projects", "add_project", "remove_project", "import_projects", "categorize_meetings"]
+PROJECTS = ["my_projects", "add_project", "remove_project", "delete_category", "import_projects",
+            "categorize_meetings"]
 # Análisis sobre el historial
 ANALYSIS = ["hours_summary", "compare_months", "project_stats", "set_target",
             "alerts", "load_history", "show_chart"]
@@ -85,6 +86,7 @@ My projects (the list of project codes the user works on):
 - my_projects: show/review the projects I work on ("which are my projects?", "what projects am I working on?"). Not read_hours: it reads nothing.
 - add_project: the user works on new project(s) ("I'm also working on FS3602A") or asks to create the Outlook category of a project code ("create the category for FS3602A"). Set "project" (first code).
 - remove_project: the user no longer works on a project ("I don't work on SE3202 anymore"). Set "project".
+- delete_category: the user explicitly asks to delete the Outlook category of a project ("delete the category of SE3202"). Set "project".
 - import_projects: import my project codes from an Excel file ("import my projects from Excel").
 - categorize_meetings: help me categorize the Outlook meetings that have NO category ("help me categorize my meetings of October"). Set month/dates if given. Not when a project code is named.
 Analysis of saved history:

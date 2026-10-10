@@ -114,6 +114,8 @@ MY_PROJECTS_RE = re.compile(
     r"|\bprojects (i'm|i am|am i) working on\b"
     r"|\b(em )?(que|quais) projetos (estou|trabalho|tenho)\b"
     r"|\bprojetos em que (trabalho|estou)\b")
+# "elimina la categoría de SE3501": solo si el usuario lo pide explícitamente (tarjeta roja)
+DELETE_CAT_RE = re.compile(r"\b(elimina\w*|borra\w*|quita\w*|delete|remove|erase|apaga\w*|exclui\w*|remov\w*)\b.*\bcategor")
 # "crea la categoría de SE3501": el proyecto se valida y se agrega (aunque no diga "trabajo en")
 CATEGORY_RE = re.compile(r"\bcategor")
 # Pide releer a propósito: no se pregunta "¿lo vuelvo a leer?"
@@ -332,9 +334,13 @@ class Agent:
             intent.action = "read_hours"
         if intent.action == "read_hours" and not self._asks_to_read(text):
             intent.action, intent.reply = "clarify", ""     # el modelo adivinó: se vuelve a preguntar
-        if CATEGORY_RE.search(suggest._norm(text)) and (any(database.extract_codes(text, self.status))
-                                                         or intent.project):
+        has_code = any(database.extract_codes(text, self.status)) or intent.project
+        if DELETE_CAT_RE.search(suggest._norm(text)) and has_code:
+            intent.action = "delete_category"
+        elif CATEGORY_RE.search(suggest._norm(text)) and has_code:
             intent.action = "project_category"
+        elif intent.action == "delete_category":  # borrar solo con un pedido explícito
+            intent.action, intent.reply = "clarify", ""
         if lang and intent.language != lang:      # el modelo se equivocó de idioma: su frase no sirve
             intent.reply = ""
         # sin palabras claras (un código, "ok"): un mensaje corto no cambia el idioma de la charla
@@ -692,21 +698,46 @@ class Agent:
             parts.append(self.m("cats_created", names=", ".join(res['created'])))
         if res['existing']:
             parts.append(self.m("cats_existing", names=", ".join(res['existing'])))
+        names = res['created'] + res['existing']
+        missing = [c for c in codes if not database.find_category(c, names)]
+        if missing:                                 # nunca en silencio: sin categoría no se asignan horas
+            parts.append(self.m("cats_missing", codes=", ".join(missing)))
         return " ".join(parts)
+
+    def _category_per_code(self, codes: List[str]) -> dict:
+        """Asegura la categoría de cada código: código → ('created'|'existing'|'failed', nombre)."""
+        try:
+            res = self._pipeline().ensure_categories(codes)
+        except Exception as e:                      # sin Outlook: la lista igual se guarda
+            self.ui.log(f"⚠ Outlook categories not created: {e}")
+            res = {'created': [], 'existing': []}
+        out = {}
+        for code in codes:
+            name = database.find_category(code, res['created'])
+            out[code] = ('created', name) if name else ('existing', database.find_category(code, res['existing']))
+            if not out[code][1]:
+                out[code] = ('failed', None)
+        return out
+
+    def _report_categories(self, cats: dict, head: str):
+        """Una frase fija por código: qué pasó con el proyecto y con su categoría de Outlook."""
+        lead = getattr(self.ui, "lead", self.ui.say)     # tal cual: el modelo no los redacta
+        for code, (state, name) in cats.items():
+            lead(f"{self.m(head, code=code)} {self.m('c_' + state, cat=name)}")
 
     def _add_codes(self, codes: List[str], unknown: List[str] = (), confirm: bool = True) -> List[str]:
         """
         Verifica los códigos con la base global y confirma en una tarjeta cuáles agregar
-        (confirm=False: los activos se agregan sin preguntar). Devuelve los que tienen categoría.
+        (confirm=False: trabajar en un proyecto = tenerlo en la lista con su categoría de
+        Outlook, así que los activos se agregan sin preguntar). Devuelve los que tienen categoría.
         """
         mine = set(self.store.my_projects())
         lead = getattr(self.ui, "lead", self.ui.say)     # tal cual: el modelo no los redacta
         lead(self.m("checking_codes"))
-        notes, labels, already = [], {}, []
+        labels, already = {}, []
         for code in codes:
             info = self.status.get(code.upper())
             if code in mine:
-                notes.append(self.m("frag_already", code=code))
                 already.append(code)
             elif not info:
                 lead(self.m("code_missing", code=code))
@@ -719,14 +750,13 @@ class Agent:
                 labels[self._label(code)] = code
         for code in unknown:
             lead(self.m("code_missing", code=code))
-        if notes:
-            self.ui.say(self.m("codes_checked", details="; ".join(notes)))
+        ready = []
         if already:                                 # ya en la lista: igual se revisa su categoría
-            cats = self._create_categories(already)
-            if cats:
-                self.ui.say(cats)
+            cats = self._category_per_code(already)
+            self._report_categories(cats, "h_already")
+            ready += [c for c, (state, _) in cats.items() if state != 'failed']
         if not labels:
-            return already
+            return ready
         chosen = list(labels)
         if confirm:
             chosen = self.ui.decide(Decision(
@@ -734,12 +764,12 @@ class Agent:
                 options=list(labels), multi=True, preselected=list(labels)))
             if not chosen:
                 self.ui.say(self.m("cancelled"))
-                return already
+                return ready
         codes = [labels[c] for c in chosen]
         self.store.add_projects(codes)
-        cats = self._create_categories(codes)
-        self.ui.say(self.m("projects_added", codes=", ".join(codes), cats=cats))
-        return already + codes
+        cats = self._category_per_code(codes)
+        self._report_categories(cats, "h_added" if confirm else "h_assumed")
+        return ready + [c for c, (state, _) in cats.items() if state != 'failed']
 
     def review_projects(self, charged: Optional[pd.DataFrame] = None):
         """
@@ -1140,14 +1170,10 @@ class Agent:
         self.review_projects()
 
     def do_add_project(self, intent):
-        self._ensure_global()
-        known, unknown = self._codes_in_text(intent)
-        if not known and not unknown:
-            raise NeedInfo(self.m("need_codes"))
-        self._add_codes(known, unknown)
-
-    def do_project_category(self, intent):
-        """"Crea la categoría de X": se asume que trabaja en X → se valida, se agrega y se crea la categoría."""
+        """
+        "Trabajo en X" / "crea la categoría de X": trabajar en un proyecto es tenerlo en la lista
+        con su categoría de Outlook (así se le asignan horas) → se valida, se agrega y se crea, sin preguntar.
+        """
         self._ensure_global()
         known, unknown = self._codes_in_text(intent)
         if not known and not unknown:
@@ -1155,6 +1181,8 @@ class Agent:
         if self._add_codes(known, unknown, confirm=False):    # luego, si quiere, asignarla a sus reuniones
             month = self.loaded.start if self.loaded else datetime.now()
             self._next(self.m("category_next", phrase=self.p("categorize", month)))
+
+    do_project_category = do_add_project
 
     def do_remove_project(self, intent):
         self._ensure_global()
@@ -1167,17 +1195,36 @@ class Agent:
         notes = [self.m("frag_not_mine", code=c) for c in codes if c not in mine]
         if notes:
             self.ui.say(self.m("codes_checked", details="; ".join(notes)))
-        labels = {self._label(c): c for c in codes if c in mine}
-        if not labels:
+        removed = [c for c in codes if c in mine]
+        if not removed:
             return
-        chosen = self.ui.decide(Decision(
-            kind='remove_projects', question=self.m("q_remove_projects"),
-            options=list(labels), multi=True, preselected=list(labels)))
-        if not chosen:
-            raise Cancelled()
-        removed = [labels[c] for c in chosen]
+        # solo sale de la lista: la categoría de Outlook se borra únicamente si el usuario lo pide
         self.store.remove_projects(removed)
-        self.ui.say(self.m("projects_removed", codes=", ".join(removed)))
+        lead = getattr(self.ui, "lead", self.ui.say)
+        lead(self.m("projects_removed", codes=", ".join(removed)))
+        self._next(self.m("remove_category_hint", code=removed[0]))
+
+    def do_delete_category(self, intent):
+        """Borra la categoría de Outlook de un proyecto: solo a pedido explícito y con tarjeta roja."""
+        self._ensure_global()
+        known, unknown = self._codes_in_text(intent)
+        codes = known + unknown
+        if not codes:
+            raise NeedInfo(self.m("need_codes"))
+        pipe = self._pipeline()
+        for code in codes:
+            name, n = pipe.category_usage(code)
+            if not name:
+                self.ui.say(self.m("delcat_missing", code=code))
+                continue
+            ok = self.ui.confirm_send(
+                self.m("delcat_title", cat=name), self.m("delcat_detail", cat=name, n=n),
+                self.m("delcat_warning", n=n), self.m("delcat_ok"), self.m("delcat_cancel"))
+            if not ok:
+                self.ui.say(self.m("delcat_kept", cat=name))
+                continue
+            pipe.delete_category(name)
+            self.ui.say(self.m("delcat_done", cat=name))
 
     def do_import_projects(self, intent):
         self._ensure_global()
